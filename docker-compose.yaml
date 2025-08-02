@@ -1,0 +1,59 @@
+version: "3"
+services:
+  API:
+    build:
+      context: ./API
+      dockerfile: ../docker/fastapi.Dockerfile
+    image: myfast:latest
+    volumes:
+      - ./API:/src
+    ports:
+      - 8000:8000
+    networks:
+      - app-network
+
+  web:
+    build:
+      context: ./next-js
+      dockerfile: ../docker/next.Dockerfile
+    # image: mynext:latest
+    command: npm run dev
+    ports:
+      - 3000:3000
+    volumes:
+      - ./next-js:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    networks:
+      - app-network
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postuser
+      POSTGRES_PASSWORD: postuser
+      POSTGRES_DB: users 
+    volumes: 
+      - user-data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    networks:
+      - app-network
+
+  paddle-api:
+    build:
+      context: ./paddleocr
+      dockerfile: ../docker/paddle.Dockerfile 
+    volumes:
+      - ./paddleocr/app:/app
+    ports:
+      - 5000:5000
+    networks:
+      - app-network   
+
+volumes:
+  user-data: {}
+
+networks:
+  app-network: {}
