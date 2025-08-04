@@ -18,6 +18,51 @@ export default function SignupPage() {
     privacy: false,
     marketing: false,
   })
+  const [email, setEmail] = useState("")
+  const [name, setName] = useState("")
+  const [password, setPassword] = useState("")
+  const [birthDate, setBirthDate] = useState("")
+
+  const handleSignup = async () => {
+    if (!agreements.terms || !agreements.privacy) {
+      alert("필수 약관에 동의해주세요.")
+      return
+    }
+
+    // 생년월일 형식 변환 (YYMMDD -> YYYY-MM-DD)
+    const year = parseInt(birthDate.substring(0, 2), 10)
+    const month = birthDate.substring(2, 4)
+    const day = birthDate.substring(4, 6)
+    const fullYear = year < 50 ? 2000 + year : 1900 + year // 2000년생 이후와 이전 구분
+    const formattedBirthDate = `${fullYear}-${month}-${day}`
+
+    try {
+      const response = await fetch("http://localhost:8000/users/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: name,
+          email: email,
+          password: password,
+          birth_date: formattedBirthDate,
+        }),
+      })
+
+      if (response.ok) {
+        alert("회원가입이 완료되었습니다!")
+        // 로그인 페이지로 리디렉션 또는 다른 작업 수행
+        window.location.href = "/login"
+      } else {
+        const errorData = await response.json()
+        alert(`회원가입 실패: ${errorData.detail || "알 수 없는 오류"}`)
+      }
+    } catch (error) {
+      console.error("회원가입 중 오류 발생:", error)
+      alert("회원가입 중 오류가 발생했습니다.")
+    }
+  }
 
   const benefits = [
     {
@@ -118,17 +163,54 @@ export default function SignupPage() {
                 <div className="space-y-3">
                   <div>
                     <Label htmlFor="email">이메일 주소</Label>
-                    <Input id="email" type="email" placeholder="example@email.com" className="mt-1" />
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="example@email.com"
+                      className="mt-1"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
                   </div>
                   <div>
-                    <Label htmlFor="name">이름 (선택)</Label>
-                    <Input id="name" type="text" placeholder="홍길동" className="mt-1" />
+                    <Label htmlFor="name">이름</Label>
+                    <Input
+                      id="name"
+                      type="text"
+                      placeholder="홍길동"
+                      className="mt-1"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="password">비밀번호</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="비밀번호"
+                      className="mt-1"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="birth_date">생년월일(주민번호 앞자리)</Label>
+                    <Input
+                      id="birth_date"
+                      type="text"
+                      placeholder="예) 920418"
+                      className="mt-1"
+                      value={birthDate}
+                      onChange={(e) => setBirthDate(e.target.value)}
+                    />
                   </div>
                 </div>
 
                 <Button
                   className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600"
                   size="lg"
+                  onClick={handleSignup}
                 >
                   이메일로 가입하기
                 </Button>
