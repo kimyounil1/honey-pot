@@ -1,4 +1,4 @@
-# 임시 스키마 파일
+# (임시) 스키마 파일
 
 from pydantic import BaseModel
 from datetime import date, datetime
