@@ -27,6 +27,7 @@ __pycache__/
 venv/
 .env/
 .env*.local
+.venv/
 
 # === Docker ===
 *.log
@@ -53,3 +54,6 @@ yarn-error.log*
 
 # === Vercel ===
 .vercel
+
+# === Test files ===
+test-compose.yaml
