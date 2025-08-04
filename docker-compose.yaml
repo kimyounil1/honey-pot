@@ -44,16 +44,16 @@ services:
     networks:
       - app-network
 
-  paddle-api:
-    build:
-      context: ./paddleocr
-      dockerfile: ../docker/paddle.Dockerfile 
-    volumes:
-      - ./paddleocr/app:/app
-    ports:
-      - 5000:5000
-    networks:
-      - app-network   
+  # paddle-api:
+  #   build:
+  #     context: ./paddleocr
+  #     dockerfile: ../docker/paddle.Dockerfile 
+  #   volumes:
+  #     - ./paddleocr/app:/app
+  #   ports:
+  #     - 5000:5000
+  #   networks:
+  #     - app-network   
 
 volumes:
   user-data: {}
