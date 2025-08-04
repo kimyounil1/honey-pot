@@ -9,4 +9,4 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # CMD ["bash", "-c", "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"]
-CMD ["bash", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+# ENTRYPOINT ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
