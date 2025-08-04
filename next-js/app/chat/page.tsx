@@ -8,15 +8,61 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
-import { MessageCircle, Send, Plus, Search, History, FileText, TrendingUp, Shield, User, Menu, X } from "lucide-react"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  MessageCircle,
+  Send,
+  Plus,
+  Search,
+  History,
+  FileText,
+  TrendingUp,
+  Shield,
+  User,
+  Menu,
+  X,
+  Trash2,
+  MoreVertical,
+} from "lucide-react"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
+import NewChatModal from "./new-chat-modal"
+
+interface ChatSession {
+  id: string
+  title: string
+  type: string
+  lastMessage: string
+  timestamp: Date
+  messageCount: number
+}
 
 export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat()
+  const [showNewChatModal, setShowNewChatModal] = useState(false)
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null)
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([
+    {
+      id: "1",
+      title: "실손보험 환급금 문의",
+      type: "refund",
+      lastMessage: "네, 확인해보니 약 150만원의 환급금이...",
+      timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30분 전
+      messageCount: 12,
+    },
+    {
+      id: "2",
+      title: "보험 약관 분석",
+      type: "analysis",
+      lastMessage: "해당 약관에 따르면 특약 조건이...",
+      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2시간 전
+      messageCount: 8,
+    },
+  ])
+
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages } = useChat()
 
   const sidebarItems = [
-    { icon: MessageCircle, label: "새 채팅", href: "/chat" },
     { icon: History, label: "채팅 기록", href: "/history" },
     { icon: FileText, label: "보험 진단", href: "/diagnosis" },
     { icon: TrendingUp, label: "환급금 분석", href: "/refund" },
@@ -30,11 +76,84 @@ export default function ChatPage() {
     "다른 보험사와 비교해주세요",
   ]
 
+  // 방식 1: 모달을 통한 새 채팅 시작
+  const handleNewChat = () => {
+    setShowNewChatModal(true)
+  }
+
+  const handleStartChatFromModal = (type: string, title?: string) => {
+    const newChatId = Date.now().toString()
+    setCurrentChatId(newChatId)
+    setMessages([])
+
+    const newSession: ChatSession = {
+      id: newChatId,
+      title: title || `새 상담 - ${new Date().toLocaleDateString()}`,
+      type,
+      lastMessage: "",
+      timestamp: new Date(),
+      messageCount: 0,
+    }
+    setChatSessions((prev) => [newSession, ...prev])
+  }
+
+  const handleDeleteChat = (chatId: string) => {
+    setChatSessions((prev) => prev.filter((chat) => chat.id !== chatId))
+    if (currentChatId === chatId) {
+      setCurrentChatId(null)
+      setMessages([])
+    }
+  }
+
+  const handleSelectChat = (chatId: string) => {
+    setCurrentChatId(chatId)
+    // 실제로는 여기서 해당 채팅의 메시지를 로드해야 함
+    setMessages([])
+  }
+
+  const formatTimestamp = (timestamp: Date) => {
+    const now = new Date()
+    const diff = now.getTime() - timestamp.getTime()
+    const minutes = Math.floor(diff / (1000 * 60))
+    const hours = Math.floor(diff / (1000 * 60 * 60))
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+
+    if (minutes < 60) return `${minutes}분 전`
+    if (hours < 24) return `${hours}시간 전`
+    return `${days}일 전`
+  }
+
+  const getChatTypeColor = (type: string) => {
+    switch (type) {
+      case "refund":
+        return "bg-green-100 text-green-700"
+      case "analysis":
+        return "bg-purple-100 text-purple-700"
+      case "comparison":
+        return "bg-orange-100 text-orange-700"
+      default:
+        return "bg-blue-100 text-blue-700"
+    }
+  }
+
+  const getChatTypeName = (type: string) => {
+    switch (type) {
+      case "refund":
+        return "환급금"
+      case "analysis":
+        return "약관분석"
+      case "comparison":
+        return "비교"
+      default:
+        return "일반상담"
+    }
+  }
+
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
       <div
-        className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0`}
+        className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 w-80 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0`}
       >
         <div className="flex items-center justify-between p-4 border-b">
           <div className="flex items-center space-x-2">
@@ -48,18 +167,69 @@ export default function ChatPage() {
           </Button>
         </div>
 
-        <div className="p-4">
-          <Button className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 mb-4">
-            <Plus className="mr-2 h-4 w-4" />새 채팅
-          </Button>
+        <div className="p-4 space-y-4">
+          {/* 새 채팅 버튼들 - 두 가지 방식 */}
+          <div className="space-y-2">
+            <Button
+              className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600"
+              onClick={handleNewChat}
+            >
+              <Plus className="mr-2 h-4 w-4" />새 채팅
+            </Button>
+          </div>
 
-          <div className="relative mb-4">
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
             <Input placeholder="채팅 검색" className="pl-10" />
           </div>
         </div>
 
-        <nav className="px-4 space-y-2">
+        {/* 채팅 기록 */}
+        <div className="px-4">
+          <h3 className="text-sm font-medium text-gray-500 mb-3">최근 채팅</h3>
+          <ScrollArea className="h-64">
+            <div className="space-y-2">
+              {chatSessions.map((chat) => (
+                <div
+                  key={chat.id}
+                  className={`p-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-50 ${
+                    currentChatId === chat.id ? "bg-yellow-50 border border-yellow-200" : "bg-white border"
+                  }`}
+                  onClick={() => handleSelectChat(chat.id)}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center space-x-2 mb-1">
+                        <h4 className="text-sm font-medium truncate">{chat.title}</h4>
+                        <Badge className={`text-xs ${getChatTypeColor(chat.type)}`}>{getChatTypeName(chat.type)}</Badge>
+                      </div>
+                      <p className="text-xs text-gray-500 truncate">{chat.lastMessage || "새 채팅"}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-xs text-gray-400">{formatTimestamp(chat.timestamp)}</span>
+                        <span className="text-xs text-gray-400">{chat.messageCount}개 메시지</span>
+                      </div>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                          <MoreVertical className="h-3 w-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleDeleteChat(chat.id)} className="text-red-600">
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          삭제
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+
+        <nav className="px-4 mt-6 space-y-2">
           {sidebarItems.map((item, index) => (
             <Link key={index} href={item.href}>
               <Button variant="ghost" className="w-full justify-start">
@@ -89,7 +259,11 @@ export default function ChatPage() {
             <Button variant="ghost" size="sm" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
               <Menu className="h-4 w-4" />
             </Button>
-            <h1 className="text-lg font-semibold text-gray-800">보험 상담 챗봇</h1>
+            <h1 className="text-lg font-semibold text-gray-800">
+              {currentChatId
+                ? chatSessions.find((c) => c.id === currentChatId)?.title || "보험 상담 챗봇"
+                : "보험 상담 챗봇"}
+            </h1>
             <Badge variant="secondary">AI 상담사</Badge>
           </div>
           <div className="flex items-center space-x-2">
@@ -250,6 +424,13 @@ export default function ChatPage() {
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
+
+      {/* New Chat Modal */}
+      <NewChatModal
+        isOpen={showNewChatModal}
+        onClose={() => setShowNewChatModal(false)}
+        onStartChat={handleStartChatFromModal}
+      />
     </div>
   )
 }
