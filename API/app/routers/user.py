@@ -29,7 +29,7 @@ async def login_for_access_token(login_data: userSchema.UserLogin, db: AsyncSess
     if not user or not pwd_context.verify(login_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="이메일 혹은 비밀번호가 틀립니다.",
+            detail="wrong email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token_expires = timedelta(minutes=token_service.ACCESS_TOKEN_EXPIRE_MINUTES)
