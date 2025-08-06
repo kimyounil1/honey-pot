@@ -1,8 +1,9 @@
 fastapi==0.116.1
 uvicorn[standard]==0.30.6
+python-multipart==0.0.9
 
 # Config & JSON
-pydantic==2.11.7
+pydantic[email]==2.11.7
 pydantic-settings==2.10.1
 python-dotenv==1.1.1
 orjson==3.11.1  # Optional, JSON 응답 속도 최적화
@@ -10,3 +11,7 @@ orjson==3.11.1  # Optional, JSON 응답 속도 최적화
 # DB
 SQLAlchemy==2.0.42
 asyncpg==0.29.0
+
+# JWT & Hashing
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4

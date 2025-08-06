@@ -57,3 +57,4 @@ yarn-error.log*
 
 # === Test files ===
 test-compose.yaml
+API/.env
