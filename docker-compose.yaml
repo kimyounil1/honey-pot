@@ -5,6 +5,8 @@ services:
       context: ./API
       dockerfile: ../docker/fastapi.Dockerfile
     image: myfast:latest
+    env_file:
+      - ./API/.env
     volumes:
       - ./API:/src
     ports:

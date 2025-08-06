@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -12,6 +13,39 @@ import Link from "next/link"
 
 export default function LoginPage() {
   const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email")
+  const [email, setEmail] = useState("") // 이메일 표시를 위한 state
+  const [password, setPassword] = useState("") // 패스워드 표시를 위한 state
+  const [error, setError] = useState("") // 에러 표시를 위한 state
+  const router = useRouter()
+
+  const handleEmailLogin = async() => {
+    setError("") // 이전 에러 메세지 초기화
+    if(!email){
+      alert("이메일을 입력해주세요.")
+      return
+    }
+    try{
+      // const response = await fetch(`http://localhost:8000/users/by-email/${email}`)
+
+      if (response.ok) {
+        const user = await response.json()
+        // 로그인 성공: 사용자 정보를 저장하고 채팅 페이지로 이동
+        console.log("로그인 성공:", user)
+        // TODO: (실제 앱에서는) 사용자 정보를 전역 상태나 쿠키에 저장
+        router.push("/chat")
+      } else if (response.status === 404) {
+        // 6. 가입 되지 않은 사용자 처리
+        alert("가입되지 않은 이메일입니다. 회원가입을 먼저 진행해주세요.")
+      } else {
+        // 기타 서버 에러
+        alert("로그인 중 문제가 발생했습니다.")
+      }
+    } catch (err) {
+      // 네트워크 에러
+      console.error("Login API call error:", err)
+      setError("서버와 통신할 수 없습니다.")
+      }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-yellow-50 via-orange-50 to-red-50 flex items-center justify-center p-4">
@@ -31,79 +65,44 @@ export default function LoginPage() {
           <Badge variant="secondary" className="mb-4">
             내가 놓친 보험금
           </Badge>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">간편 로그인</h1>
-          <p className="text-gray-600">빠르고 안전하게 시작하세요</p>
         </div>
 
         <Card className="shadow-lg">
           <CardHeader className="space-y-4">
-            <CardTitle className="text-center">로그인 방법 선택</CardTitle>
+            <CardTitle className="text-center">로그인</CardTitle>
             <CardDescription className="text-center">개인정보는 최소한만 수집하며, 안전하게 보호됩니다</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* 소셜 로그인 */}
-            <div className="space-y-3">
-              <Button className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-800 font-medium" size="lg">
-                <MessageCircle className="mr-2 h-5 w-5" />
-                카카오로 3초만에 시작하기
-              </Button>
-
-              <Button
-                variant="outline"
-                className="w-full border-green-500 text-green-600 hover:bg-green-50 bg-transparent"
-                size="lg"
-              >
-                <span className="mr-2 text-lg font-bold">N</span>
-                네이버로 시작하기
-              </Button>
-            </div>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <Separator />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-2 text-gray-500">또는</span>
-              </div>
-            </div>
 
             {/* 이메일/전화번호 로그인 */}
             <div className="space-y-4">
-              <div className="flex space-x-2">
-                <Button
-                  variant={loginMethod === "email" ? "default" : "outline"}
-                  className="flex-1"
-                  onClick={() => setLoginMethod("email")}
-                >
-                  <Mail className="mr-2 h-4 w-4" />
-                  이메일
-                </Button>
-                <Button
-                  variant={loginMethod === "phone" ? "default" : "outline"}
-                  className="flex-1"
-                  onClick={() => setLoginMethod("phone")}
-                >
-                  <Phone className="mr-2 h-4 w-4" />
-                  휴대폰
-                </Button>
-              </div>
-
               <div className="space-y-3">
                 <div>
-                  <Label htmlFor="login-input">{loginMethod === "email" ? "이메일 주소" : "휴대폰 번호"}</Label>
+                  <Label htmlFor="login-input">이메일 주소</Label>
                   <Input
                     id="login-input"
-                    type={loginMethod === "email" ? "email" : "tel"}
-                    placeholder={loginMethod === "email" ? "example@email.com" : "010-1234-5678"}
+                    type="email"
+                    placeholder="example@email.com"
                     className="mt-1"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}  // input 변경시 state 업데이트
                   />
                 </div>
-
+                <div>
+                  <Label htmlFor="password">비밀번호</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="비밀번호"
+                    className="mt-1"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
                 <Button
                   className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600"
                   size="lg"
-                >
-                  {loginMethod === "email" ? "이메일로 로그인" : "인증번호 받기"}
+                  onClick={handleEmailLogin}> 로그인
                 </Button>
               </div>
             </div>
@@ -126,21 +125,6 @@ export default function LoginPage() {
                 </Link>
                 에 동의합니다
               </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* 게스트 이용 안내 */}
-        <Card className="mt-6 bg-blue-50 border-blue-200">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <h3 className="font-medium text-blue-800 mb-2">로그인 없이도 이용 가능!</h3>
-              <p className="text-sm text-blue-600 mb-4">기본적인 보험 상담은 회원가입 없이도 바로 시작할 수 있어요</p>
-              <Link href="/chat">
-                <Button variant="outline" className="border-blue-300 text-blue-600 hover:bg-blue-100 bg-transparent">
-                  게스트로 체험해보기
-                </Button>
-              </Link>
             </div>
           </CardContent>
         </Card>

@@ -100,8 +100,8 @@ export default function SignupPage() {
           <Badge variant="secondary" className="mb-4">
             내가 놓친 보험금
           </Badge>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">간편 회원가입</h1>
-          <p className="text-gray-600">3초만에 가입하고 더 많은 혜택을 받아보세요</p>
+          {/* <h1 className="text-2xl font-bold text-gray-800 mb-2">간편 회원가입</h1>
+          <p className="text-gray-600">3초만에 가입하고 더 많은 혜택을 받아보세요</p> */}
         </div>
 
         {/* Benefits */}
@@ -128,14 +128,14 @@ export default function SignupPage() {
 
         <Card className="shadow-lg">
           <CardHeader>
-            <CardTitle className="text-center">회원가입 방법 선택</CardTitle>
+            <CardTitle className="text-center">이메일로 회원가입</CardTitle>
             <CardDescription className="text-center">개인정보는 최소한만 수집하며, 안전하게 보호됩니다</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {/* 소셜 회원가입 */}
             {signupMethod === "social" && (
               <div className="space-y-3">
-                <Button className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-800 font-medium" size="lg">
+                {/* <Button className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-800 font-medium" size="lg">
                   <MessageCircle className="mr-2 h-5 w-5" />
                   카카오로 3초만에 가입하기
                 </Button>
@@ -147,11 +147,11 @@ export default function SignupPage() {
                 >
                   <span className="mr-2 text-lg font-bold">N</span>
                   네이버로 가입하기
-                </Button>
+                </Button> */}
 
                 <div className="text-center">
                   <Button variant="ghost" size="sm" onClick={() => setSignupMethod("email")}>
-                    이메일로 가입하기
+                    가입하기
                   </Button>
                 </div>
               </div>
@@ -212,14 +212,14 @@ export default function SignupPage() {
                   size="lg"
                   onClick={handleSignup}
                 >
-                  이메일로 가입하기
+                  가입하기
                 </Button>
 
-                <div className="text-center">
+                {/* <div className="text-center">
                   <Button variant="ghost" size="sm" onClick={() => setSignupMethod("social")}>
                     소셜 로그인으로 돌아가기
                   </Button>
-                </div>
+                </div> */}
               </div>
             )}
 
