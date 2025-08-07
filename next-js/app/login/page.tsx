@@ -12,28 +12,27 @@ import { ArrowLeft, Mail, Phone, MessageCircle } from "lucide-react"
 import Link from "next/link"
 
 export default function LoginPage() {
-  const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email")
+  // const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email")
   const [email, setEmail] = useState("") // 이메일 표시를 위한 state
   const [password, setPassword] = useState("") // 패스워드 표시를 위한 state
   const router = useRouter()
 
-  const handleEmailLogin = async () => {
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); 
     if(!email){
       alert("이메일을 입력해주세요.")
       return
     }
     try{
-      const response = await fetch(`http://localhost:8000/users/login`, {
+      const response = await fetch(`/api/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json", },
         body: JSON.stringify({ email: email, password: password }),
       })
 
       if (response.ok) {
-        const data = await response.json();
-        // alert("로그인 성공");
+        // const data = await response.json();
+        // document.cookie = `access_token=${data.access_token}; path=/`;
         router.push("/chat");
       } else if (response.status === 401) {
         // 잘못된 사용자 처리
@@ -57,7 +56,7 @@ export default function LoginPage() {
             <ArrowLeft className="h-4 w-4 mr-2" />
             메인으로 돌아가기
           </Link>
-          <div className="flex items-center justify-center space-x-2 mb-4">
+          <div className="flex items-center justify-cenqter space-x-2 mb-4">
             <div className="w-10 h-10 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold">꿀</span>
             </div>
@@ -76,7 +75,7 @@ export default function LoginPage() {
           <CardContent className="space-y-6">
 
             {/* 이메일/전화번호 로그인 */}
-            <form className="space-y-4" onSubmit={handleEmailLogin}>
+            <form className="space-y-4" onSubmit={handleLogin}>
               <div className="space-y-3">
                 <div>
                   <Label htmlFor="login-input">이메일 주소</Label>

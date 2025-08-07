@@ -28,6 +28,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import Link from "next/link"
 import NewChatModal from "./new-chat-modal"
 
+import { useRouter } from "next/navigation";
+
 interface ChatSession {
   id: string
   title: string
@@ -60,6 +62,7 @@ export default function ChatPage() {
     },
   ])
 
+  const router = useRouter();
   const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages } = useChat()
 
   const sidebarItems = [
@@ -136,18 +139,23 @@ export default function ChatPage() {
     }
   }
 
-  const getChatTypeName = (type: string) => {
-    switch (type) {
-      case "refund":
-        return "환급금"
-      case "analysis":
-        return "약관분석"
-      case "comparison":
-        return "비교"
-      default:
-        return "일반상담"
-    }
-  }
+  const getChatTypeName = (type: string) => {                                          
+    switch (type) {                                                                    
+      case "refund":                                                                   
+        return "환급금"                                                                
+      case "analysis":                                                                 
+        return "약관분석"                                                              
+      case "comparison":                                                               
+        return "비교"                                                                  
+      default:                                                                         
+        return "일반상담"                                                              
+    }                                                                                  
+  }        
+
+  const handleLogout = async () => {
+    await fetch("/api/logout");
+    router.push("/login");
+  };
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -242,12 +250,10 @@ export default function ChatPage() {
 
         <div className="absolute bottom-4 left-4 right-4">
           <Separator className="mb-4" />
-          <Link href="/login">
-            <Button variant="outline" className="w-full bg-transparent">
-              <User className="mr-2 h-4 w-4" />
-              로그인
-            </Button>
-          </Link>
+          <Button variant="outline" className="w-full bg-transparent" onClick={handleLogout}>
+            <User className="mr-2 h-4 w-4" />
+            로그아웃
+          </Button>
         </div>
       </div>
 
