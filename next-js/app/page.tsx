@@ -282,7 +282,7 @@ return (
 </div>
 </section>
 
-{/* New Section: 보험사들도 절대 안알려준다 */}
+{/* New Section: 보험사들도 절대 안알려준 다 */}
 <section className="py-20 bg-gradient-to-br from-orange-50 to-yellow-50">
 <div className="container mx-auto px-4 text-center">
 <h2 className="text-4xl md:text-5xl font-bold text-orange-500 mb-4">보험사들도 절대 안알려줘요!</h2>
@@ -343,7 +343,6 @@ return (
               ))}
             </div>
           </div>
-        </div>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold text-orange-500 mb-4">+{testimonial.amount}</div>
