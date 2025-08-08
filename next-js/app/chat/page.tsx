@@ -154,7 +154,7 @@ export default function ChatPage() {
 
   const handleLogout = async () => {
     await fetch("/api/logout");
-    router.push("/login");
+    router.push("/");
   };
 
   return (

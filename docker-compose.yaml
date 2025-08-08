@@ -23,6 +23,8 @@ services:
       context: ./next-js
       dockerfile: ../docker/next.Dockerfile
     # image: mynext:latest
+    env_file:
+      - ./next-js/.env
     command: npm run dev
     ports:
       - 3000:3000
