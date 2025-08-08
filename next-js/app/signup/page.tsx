@@ -37,11 +37,10 @@ export default function SignupPage() {
     const formattedBirthDate = `${fullYear}-${month}-${day}`
 
     try {
-      const response = await fetch("http://localhost:8000/users/", {
+      // const response = await fetch("http://localhost:8000/users/", {
+      const response = await fetch(`api/signup/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json", },
         body: JSON.stringify({
           name: name,
           email: email,
