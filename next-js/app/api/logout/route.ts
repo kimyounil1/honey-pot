@@ -5,6 +5,9 @@ export async function GET() {
   const baseUrl = process.env.BASE_URL
   // const response = NextResponse.redirect(new URL("/", process.env.NEXT_PUBLIC_BASE_URL || "http://54.252.129.84:3000"));
   const response = NextResponse.redirect(new URL("/", baseUrl));
+  const baseUrl = process.env.BASE_URL
+  // const response = NextResponse.redirect(new URL("/", process.env.NEXT_PUBLIC_BASE_URL || "http://54.252.129.84:3000"));
+  const response = NextResponse.redirect(new URL("/", baseUrl));
 
   // 쿠키를 삭제합니다. (maxAge: 0)
   response.cookies.set("access_token", "", {
