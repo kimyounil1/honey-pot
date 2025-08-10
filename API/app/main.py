@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import Base, engine
 from app.routers import user, policy, claim
 from contextlib import asynccontextmanager
+from app.routers import chat
 
 app = FastAPI(title="InsuranceApp")
 
@@ -25,6 +26,7 @@ async def on_startup():
 app.include_router(user.router)
 app.include_router(policy.router)
 app.include_router(claim.router)
+app.include_router(chat.router)
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
