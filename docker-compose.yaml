@@ -6,7 +6,7 @@ services:
       dockerfile: ../docker/fastapi.Dockerfile
     image: myfast:latest
     env_file:
-      - ./API/.env
+      - ./.env
     volumes:
       - ./API:/src
     ports:
@@ -23,6 +23,8 @@ services:
       context: ./next-js
       dockerfile: ../docker/next.Dockerfile
     # image: mynext:latest
+    env_file:
+      - ./.env
     command: npm run dev
     ports:
       - 3000:3000

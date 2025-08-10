@@ -3,7 +3,7 @@ from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from datetime import datetime
-from app import models
+from app.models import userModel
 from app.database import get_db
 from app.schemas.tokenSchema import Token
 
@@ -27,7 +27,7 @@ async def get_current_user(token: str = Depends(Token), db: AsyncSession = Depen
         raise credentials_exception
 
     # DB에서 유저 확인
-    result = await db.execute(select(models.User).where(models.User.email == email))
+    result = await db.execute(select(userModel.User).where(userModel.User.email == email))
     user = result.scalar_one_or_none()
     if user is None:
         raise credentials_exception
