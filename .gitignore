@@ -61,3 +61,6 @@ yarn-error.log*
 # === Test files ===
 test-compose.yamlAPI/.env
 API/.env
+API/.env
+API/.env.backup
+tatus
