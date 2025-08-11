@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from 'next/navigation';
 import { useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import { Button } from "@/components/ui/button"
@@ -58,12 +59,17 @@ export default function ChatPage() {
       messageCount: 8,
     },
   ])
-
+  const router = useRouter();
   const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages } = useChat()
   const [showChatHistory, setShowChatHistory] = useState(true) // 기본값 true로 변경
   const [myInsuranceCompleted, setMyInsuranceCompleted] = useState(false)
   const [selectedInsuranceCompanies, setSelectedInsuranceCompanies] = useState<string[]>([])
   const [showAllQuickQuestions, setShowAllQuickQuestions] = useState(false) // New state for showing all questions
+
+  const handleLogout = async () => {
+    await fetch("/api/logout");
+    router.push("/");
+  };
 
   const handleNewChat = () => {
     setShowNewChatModal(true)
@@ -357,11 +363,7 @@ export default function ChatPage() {
             <Button 
               variant="outline" 
               className="text-red-600 border-red-600 hover:bg-red-50 px-3 py-1 text-sm h-auto"
-              onClick={() => {
-                // 실제 로그아웃 로직 구현
-                console.log("로그아웃")
-                // 예: router.push('/login')
-              }}
+              onClick={handleLogout}
             >
               <LogOut className="mr-2 h-4 w-4" />
               로그아웃

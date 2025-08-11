@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from 'next/navigation';
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -50,6 +51,11 @@ export default function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
       onClick: () => console.log("설정")
     }
   ]
+  const router = useRouter();
+  const handleLogout = async () => {
+  await fetch("/api/logout");
+  router.push("/");
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -94,10 +100,7 @@ export default function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
           <Button
             variant="ghost"
             className="w-full justify-start text-red-600 hover:bg-red-50 hover:text-red-700"
-            onClick={() => {
-              console.log("로그아웃")
-              onClose()
-            }}
+            onClick={handleLogout}
           >
             <LogOut className="mr-3 h-5 w-5" />
             로그아웃
