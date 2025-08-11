@@ -1,34 +1,31 @@
 # app/routers/chat.py
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
-
-from app.database import get_db
-from app.config import settings
-from app.service.llm_service import ask_llm
+from typing import List, Optional
+from app.assistants.stage import prepare_llm_request
+from app.assistants.llm_gateway import call_llm
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 class AskBody(BaseModel):
-    user_id: Optional[int] = None
+    user_id: str
     text: str
-    first_message: bool = False   # ✅ 추가
+    first_message: bool = False
+    attachment_ids: Optional[List[str]] = None  # 업로드된 file_id 배열
 
 @router.post("/ask")
-async def ask(body: AskBody, db: AsyncSession = Depends(get_db)):
-    answer = await ask_llm(body.text, first_message=body.first_message)  # ✅ 변경
-    # TODO: 필요하면 여기서 대화 로그 DB에 저장
-    return {"ok": True, "answer": answer}
-
-@router.post("/webhook")
-async def webhook(
-    body: AskBody,
-    db: AsyncSession = Depends(get_db),
-    x_webhook_signature: Optional[str] = Header(None),
-):
-    if settings.WEBHOOK_SECRET and (x_webhook_signature or "") != settings.WEBHOOK_SECRET:
-        raise HTTPException(status_code=401, detail="Invalid webhook signature")
-
-    answer = await ask_llm(body.text, first_message=body.first_message)  # ✅ 변경
-    return {"answer": answer}
+async def ask(body: AskBody):
+    # 2단계: messages 준비
+    llm_req = await prepare_llm_request(
+        user_id=body.user_id,
+        text=body.text,
+        first_message=body.first_message,
+        attachment_ids=body.attachment_ids,
+    )
+    # 3단계: LLM 호출
+    answer = await call_llm(llm_req["messages"])
+    return {
+        "answer": answer,
+        "mode": llm_req["mode"],
+        "used_attachments": llm_req["attachments_used"],
+    }
