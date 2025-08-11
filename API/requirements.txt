@@ -15,3 +15,5 @@ asyncpg==0.29.0
 # JWT & Hashing
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
+
+openai==1.99.6
