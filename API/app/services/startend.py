@@ -1,6 +1,6 @@
 from typing import List, Dict
-from app.assistants.common import Mode, GREETING, TERMS_KEYS, REFUND_KEYS, RECO_KEYS
-from app.assistants import terms_analysis, refund_calc, recommend, fallback
+from app.services.common import Mode, GREETING, TERMS_KEYS, REFUND_KEYS, RECO_KEYS
+from app.services import terms_analysis, refund_calc, recommend, fallback
 
 SYSTEM_PROMPT = (
     "[모드: STARTEND]\n"

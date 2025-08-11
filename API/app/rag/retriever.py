@@ -1,6 +1,6 @@
 # app/rag/retriever.py
 from typing import Sequence
-from app.assistants.common import Mode
+from app.services.common import Mode
 
 async def retrieve(
     mode: Mode,

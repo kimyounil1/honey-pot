@@ -1,6 +1,6 @@
 from typing import Sequence, TypedDict, List, Dict
-from app.assistants.common import Mode
-from app.assistants import startend
+from app.services.common import Mode
+from app.services import startend
 from app.rag.retriever import retrieve
 
 class LLMRequest(TypedDict):

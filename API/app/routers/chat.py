@@ -2,8 +2,8 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List, Optional
-from app.assistants.stage import prepare_llm_request
-from app.assistants.llm_gateway import call_llm
+from app.services.stage import prepare_llm_request
+from app.services.llm_gateway import call_llm
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
