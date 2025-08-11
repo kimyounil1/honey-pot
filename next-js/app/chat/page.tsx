@@ -1,8 +1,7 @@
 "use client"
 
-import { useRouter } from 'next/navigation';
-import { useState } from "react"
-import { useChat } from "@ai-sdk/react"
+import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react" // Import useEffect
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -28,6 +27,13 @@ interface ChatSession {
   lastMessage: string
   timestamp: Date
   messageCount: number
+}
+
+// Updated Message interface to include a mandatory 'id'
+interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 export default function ChatPage() {
@@ -59,12 +65,103 @@ export default function ChatPage() {
       messageCount: 8,
     },
   ])
+
   const router = useRouter();
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages } = useChat()
-  const [showChatHistory, setShowChatHistory] = useState(true) // 기본값 true로 변경
+
+  const [messages, setMessages] = useState<Message[]>([])
+  const [input, setInput] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value)
+  }
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!input.trim()) return
+
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: input,
+    }
+
+    const newMessages = [...messages, userMessage]
+    setMessages(newMessages)
+    setInput('')
+    setIsLoading(true)
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: newMessages,
+          // Add other data your `route.ts` expects
+          user_id: "20221", // Example user_id
+          first_message: newMessages.length === 1,
+          attachment_ids: [],
+        }),
+      })
+
+      if (!response.ok || !response.body) {
+        const errorText = await response.text()
+        throw new Error(`Server error: ${errorText || response.statusText}`)
+      }
+      
+      const assistantMessageId = `assistant-${Date.now()}`
+      setMessages((prev) => [
+        ...prev,
+        { id: assistantMessageId, role: 'assistant', content: '' },
+      ])
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let responseText = ''
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        responseText += decoder.decode(value)
+      }
+
+      let newContent = responseText
+      try {
+        const parsed = JSON.parse(responseText)
+        if(parsed.answer){
+          newContent = parsed.answer
+        }
+      } catch(e) {
+        // ?
+      }
+        // const chunk = decoder.decode(value)
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              // ? { ...msg, content: msg.content + chunk }
+              ? { ...msg, content: newContent }
+              : msg
+          )
+        )
+    } catch (error) {
+      console.error('An error occurred during the request:', error)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          role: 'assistant',
+          content: '죄송합니다, 답변을 생성하는 중 오류가 발생했습니다.',
+        },
+      ])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const [showChatHistory, setShowChatHistory] = useState(true)
   const [myInsuranceCompleted, setMyInsuranceCompleted] = useState(false)
   const [selectedInsuranceCompanies, setSelectedInsuranceCompanies] = useState<string[]>([])
-  const [showAllQuickQuestions, setShowAllQuickQuestions] = useState(false) // New state for showing all questions
+  const [showAllQuickQuestions, setShowAllQuickQuestions] = useState(false)
 
   const handleLogout = async () => {
     await fetch("/api/logout");
@@ -79,8 +176,17 @@ export default function ChatPage() {
     const newChatId = Date.now().toString()
     setCurrentChatId(newChatId)
     
-    const initialParts = initialMessage ? [{ type: "text", text: initialMessage }] : []
-    setMessages(initialParts.length > 0 ? [{ id: "initial-user-msg", role: "user", parts: initialParts }] : [])
+    if (initialMessage) {
+      setMessages([
+        {
+          id: "initial-user-msg", // ID is present, which is good
+          role: "user",
+          content: initialMessage,
+        }
+      ]);
+    } else {
+      setMessages([]);
+    }
 
     const newSession: ChatSession = {
       id: newChatId,
@@ -103,19 +209,18 @@ export default function ChatPage() {
 
   const handleSelectChat = (chatId: string) => {
     setCurrentChatId(chatId)
+    // Here you would typically fetch the message history for the selected chat
+    // For now, we just clear the messages as per the original logic.
     setMessages([])
   }
 
   const handleInsuranceCompanyComplete = (companies: string[] | null) => {
     if (companies === null) {
-      // '보험 없음' 선택
       setMyInsuranceCompleted(true)
       setSelectedInsuranceCompanies([])
-      // 채팅 시작하지 않고 초기 화면 유지
     } else {
       setSelectedInsuranceCompanies(companies)
       setMyInsuranceCompleted(true)
-      // 채팅 시작하지 않고 초기 화면 유지
     }
   }
 
@@ -140,7 +245,6 @@ export default function ChatPage() {
     handleStartChatFromModal("general", `보험 추천 (${recommendationType})`, `"${recommendationType}"에 대한 보험 추천을 완료했습니다. 결과에 대해 더 궁금한 점이 있습니다.`)
   }
 
-  // Add quick start questions as per the screenshot
   const quickStartQuestions = [
     "제가 가입한 보험이 어떤 보장을 해주는지 모르겠어요.",
     "이 진단명(또는 질병명)으로 보험금 청구가 가능한가요?",
@@ -156,7 +260,6 @@ export default function ChatPage() {
 
   const displayedQuestions = showAllQuickQuestions ? quickStartQuestions : quickStartQuestions.slice(0, 4);
 
-  // Modify handleFeatureClick to remove myInsuranceCompleted checks for the main feature cards
   const handleFeatureClick = (feature: string) => {
     console.log(`Feature clicked: ${feature}, myInsuranceCompleted: ${myInsuranceCompleted}`);
     switch (feature) {
@@ -192,13 +295,13 @@ export default function ChatPage() {
   const getChatTypeColor = (type: string) => {
     switch (type) {
       case "refund":
-        return "bg-green-100 text-green-700" // 환급금 (초록색 유지)
+        return "bg-green-100 text-green-700"
       case "analysis":
-        return "bg-blue-100 text-blue-700" // 약관분석 (파란색)
-      case "comparison": // 보험 추천
-        return "bg-purple-100 text-purple-700" // 보험추천 (보라색)
+        return "bg-blue-100 text-blue-700"
+      case "comparison":
+        return "bg-purple-100 text-purple-700"
       default:
-        return "bg-blue-100 text-blue-700" // 일반상담 (파란색 유지)
+        return "bg-blue-100 text-blue-700"
     }
   }
 
@@ -222,8 +325,7 @@ export default function ChatPage() {
   const resetToHome = () => {
     setCurrentChatId(null);
     setMessages([]);
-    setShowAllQuickQuestions(false); // Reset state on home
-    // myInsuranceCompleted와 selectedInsuranceCompanies는 의도적으로 유지됩니다.
+    setShowAllQuickQuestions(false);
   }
 
   return (
@@ -455,7 +557,7 @@ export default function ChatPage() {
               </div>
             </div>
           ) : (
-            // Existing chat message display logic remains here
+            // Chat message display
             <div className="max-w-3xl mx-auto space-y-4">
               {messages.map((message) => (
                 <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -474,16 +576,9 @@ export default function ChatPage() {
                         message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"
                       }`}
                     >
-                      {message.parts.map((part, i) => {
-                        if (part.type === "text") {
-                          return (
-                            <div key={i} className="whitespace-pre-wrap">
-                              {part.text}
-                            </div>
-                          )
-                        }
-                        return null
-                      })}
+                      <div className="whitespace-pre-wrap">
+                        {message.content}
+                      </div>
                     </div>
                   </div>
                 </div>

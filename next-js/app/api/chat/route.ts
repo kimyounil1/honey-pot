@@ -1,32 +1,49 @@
-import { openai } from "@ai-sdk/openai"
-import { streamText } from "ai"
+// import { openai } from "@ai-sdk/openai"
+// import { streamText } from "ai"
 
 export const maxDuration = 30
 
 export async function POST(req: Request) {
-  const { messages } = await req.json()
+  try {
 
-  const result = streamText({
-    model: openai("gpt-4o"),
-    system: `당신은 "꿀통"이라는 보험금 찾기 서비스의 AI 상담사입니다. 
-    
-    역할:
-    - 친근하고 전문적인 보험 상담사
-    - 사용자의 보험 관련 질문에 도움이 되는 답변 제공
-    - 놓치고 있는 보험금이나 환급 혜택에 대한 정보 제공
-    - 복잡한 보험 약관을 쉽게 설명
-    
-    말투:
-    - 친근하고 따뜻한 말투 사용
-    - 전문 용어는 쉽게 풀어서 설명
-    - 이모지를 적절히 사용하여 친근함 표현
-    
-    주의사항:
-    - 정확하지 않은 정보는 제공하지 않기
-    - 개인의 구체적인 보험 상품에 대해서는 전문가 상담 권유
-    - 법적 조언은 하지 않기`,
-    messages,
-  })
+    const { messages, user_id, first_message, attachment_ids } = await req.json();
+    const lastUserMessage = messages[messages.length-1];
 
-  return result.toDataStreamResponse()
+    if (!lastUserMessage || lastUserMessage.role !== 'user') {
+      return new Response('Valid user message not found in the request body.', { status: 400 });
+    }
+
+    const fastApiPayload = {
+      user_id: user_id,
+      text: lastUserMessage.content,
+      first_message: first_message,
+      attachment_ids: attachment_ids,
+    }
+    
+    const fastApiResponse = await fetch("http:///API:8000/chat/ask",{
+      method: "POST",
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(fastApiPayload),
+    });
+
+    if (!fastApiResponse.ok) {
+      const errorBody = await fastApiResponse.text();
+      console.error('FastAPI backend returned an error:', errorBody);
+      return new Response(errorBody, { status: fastApiResponse.status });
+    }
+    return new Response(fastApiResponse.body, {
+      status: fastApiResponse.status,
+      statusText: fastApiResponse.statusText,
+      headers: fastApiResponse.headers,
+    });
+    } catch (error) {
+    console.error('Error in Next.js API route (/api/chat):', error);
+    if (error instanceof Error) {
+      return new Response(error.message, { status: 500 });
+    }
+    return new Response('An unknown error occurred.', { status: 500 });
+  }
 }
