@@ -37,7 +37,7 @@ async def login_for_access_token(login_data: userSchema.UserLogin, db: AsyncSess
     access_token = token_service.create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token}
 
 @router.get("/by-email/{email}", response_model=userSchema.UserRead)
 async def get_user_by_email(email: str, db: AsyncSession = Depends(get_db)):

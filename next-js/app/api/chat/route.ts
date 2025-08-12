@@ -1,12 +1,13 @@
-// import { openai } from "@ai-sdk/openai"
-// import { streamText } from "ai"
+import { cookies } from 'next/headers';
 
 export const maxDuration = 30
 
 export async function POST(req: Request) {
   try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get('access_token')?.value;
 
-    const { messages, user_id, first_message, attachment_ids } = await req.json();
+    const { messages, first_message, attachment_ids } = await req.json();
     const lastUserMessage = messages[messages.length-1];
 
     if (!lastUserMessage || lastUserMessage.role !== 'user') {
@@ -14,13 +15,12 @@ export async function POST(req: Request) {
     }
 
     const fastApiPayload = {
-      user_id: user_id,
       text: lastUserMessage.content,
       first_message: first_message,
       attachment_ids: attachment_ids,
     }
     
-    const fastApiResponse = await fetch("http:///API:8000/chat/ask",{
+    const fastApiResponse = await fetch("http:///API:8000/chat/ask?access_token="+token,{
       method: "POST",
       headers: {
         'Content-Type': 'application/json',

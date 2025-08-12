@@ -98,7 +98,7 @@ export default function ChatPage() {
         body: JSON.stringify({
           messages: newMessages,
           // Add other data your `route.ts` expects
-          user_id: "20221", // Example user_id
+          // user_id: "20221", // Example user_id
           first_message: newMessages.length === 1,
           attachment_ids: [],
         }),
