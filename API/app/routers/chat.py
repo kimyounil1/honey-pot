@@ -30,7 +30,7 @@ async def ask(
     current_user: UserRead = Depends(deps.get_current_user),
     # db: AsyncSession = Depends(get_db)
 ):
-    print(f"[ROUTER] /chat/ask user_id={body.user_id} first={body.first_message} text='{body.text[:80]}'")
+    # print(f"[ROUTER] /chat/ask user_id={body.user_id} first={body.first_message} text='{body.text[:80]}'")
     # 2단계: messages 준비
     llm_req = await prepare_llm_request(
         user_id=current_user.user_id,
