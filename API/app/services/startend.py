@@ -1,34 +1,24 @@
-from typing import List, Dict
-from app.services.common import Mode, GREETING, TERMS_KEYS, REFUND_KEYS, RECO_KEYS
-from app.services import terms_analysis, refund_calc, recommend, fallback
+# app/services/startend.py
+from typing import List, Dict, Optional
+from app.services.common import Mode, decide_flow_with_llm
+from app.services import terms_analysis, refund_calc, recommend, general_question, fallback
 
-SYSTEM_PROMPT = (
-    "[모드: STARTEND]\n"
-    "역할: 사용자의 발화와 첨부 컨텍스트를 고려해 적절한 하위 어시스턴트로 연결한다.\n"
-    "우선순위: 약관분석 > 환급금찾기 > 보험추천, 그 외는 예외질문(fallback).\n"
-)
+def classify_with_llm(user_text: str, attachment_ids: Optional[List[str]] = None):
+    decision = decide_flow_with_llm(user_text, attachment_ids or [])
+    print(f"[STARTEND] classify -> {decision.flow} | text='{user_text[:80]}'")
+    return decision
 
-def classify(user_text: str) -> Mode:
-    lt = user_text.lower()
-    if any(k in lt for k in TERMS_KEYS):  return Mode.TERMS
-    if any(k in lt for k in REFUND_KEYS): return Mode.REFUND
-    if any(k in lt for k in RECO_KEYS):   return Mode.RECO
-    return Mode.FALLBACK
-
-def build_messages(user_text: str, context: str = "", first_message: bool = False) -> List[Dict[str, str]]:
-    mode = classify(user_text)
+def build_messages(mode: Mode, user_text: str, context: str = "", first_message: bool = False) -> List[Dict[str, str]]:
     if mode == Mode.TERMS:
         msgs = terms_analysis.build_messages(user_text, context)
     elif mode == Mode.REFUND:
         msgs = refund_calc.build_messages(user_text, context)
     elif mode == Mode.RECO:
         msgs = recommend.build_messages(user_text, context)
+    elif mode == Mode.GENERAL:
+        msgs = general_question.build_messages(user_text, context)
     else:
         msgs = fallback.build_messages(user_text, context)
 
-    if first_message:
-        for m in msgs:
-            if m["role"] == "user":
-                m["content"] = GREETING + m["content"]
-                break
+    print(f"[STARTEND] built messages for mode={mode} (context_len={len(context)}, messages_len={len(msgs)})")
     return msgs
