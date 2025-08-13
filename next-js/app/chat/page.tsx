@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, Trash2, MoreVertical, Droplet, History, LogOut, ChevronDown, ChevronRight, ChevronUp } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { sendChatRequest } from "@/lib/sendChatRequst"
 import Link from "next/link"
 import NewChatModal from "./new-chat-modal"
 import InsuranceCompanyModal from "./insurance-company-modal"
@@ -91,71 +92,72 @@ export default function ChatPage() {
     setInput('')
     setIsLoading(true)
 
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: newMessages,
-          // Add other data your `route.ts` expects
-          // user_id: "20221", // Example user_id
-          first_message: newMessages.length === 1,
-          attachment_ids: [],
-        }),
-      })
+    await sendChatRequest(newMessages, setMessages, setIsLoading)
+    // try {
+    //   const response = await fetch('/api/chat', {
+    //     method: 'POST',
+    //     headers: { 'Content-Type': 'application/json' },
+    //     body: JSON.stringify({
+    //       messages: newMessages,
+    //       // Add other data your `route.ts` expects
+    //       // user_id: "20221", // Example user_id
+    //       first_message: newMessages.length === 1,
+    //       attachment_ids: [],
+    //     }),
+    //   })
 
-      if (!response.ok || !response.body) {
-        const errorText = await response.text()
-        throw new Error(`Server error: ${errorText || response.statusText}`)
-      }
+    //   if (!response.ok || !response.body) {
+    //     const errorText = await response.text()
+    //     throw new Error(`Server error: ${errorText || response.statusText}`)
+    //   }
       
-      const assistantMessageId = `assistant-${Date.now()}`
-      setMessages((prev) => [
-        ...prev,
-        { id: assistantMessageId, role: 'assistant', content: '' },
-      ])
+    //   const assistantMessageId = `assistant-${Date.now()}`
+    //   setMessages((prev) => [
+    //     ...prev,
+    //     { id: assistantMessageId, role: 'assistant', content: '' },
+    //   ])
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let responseText = ''
+    //   const reader = response.body.getReader()
+    //   const decoder = new TextDecoder()
+    //   let responseText = ''
 
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        responseText += decoder.decode(value)
-      }
+    //   while (true) {
+    //     const { value, done } = await reader.read()
+    //     if (done) break
+    //     responseText += decoder.decode(value)
+    //   }
 
-      let newContent = responseText
-      try {
-        const parsed = JSON.parse(responseText)
-        if(parsed.answer){
-          newContent = parsed.answer
-        }
-      } catch(e) {
-        // ?
-      }
-        // const chunk = decoder.decode(value)
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              // ? { ...msg, content: msg.content + chunk }
-              ? { ...msg, content: newContent }
-              : msg
-          )
-        )
-    } catch (error) {
-      console.error('An error occurred during the request:', error)
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `error-${Date.now()}`,
-          role: 'assistant',
-          content: '죄송합니다, 답변을 생성하는 중 오류가 발생했습니다.',
-        },
-      ])
-    } finally {
-      setIsLoading(false)
-    }
+    //   let newContent = responseText
+    //   try {
+    //     const parsed = JSON.parse(responseText)
+    //     if(parsed.answer){
+    //       newContent = parsed.answer
+    //     }
+    //   } catch(e) {
+    //     // ?
+    //   }
+    //     // const chunk = decoder.decode(value)
+    //     setMessages((prev) =>
+    //       prev.map((msg) =>
+    //         msg.id === assistantMessageId
+    //           // ? { ...msg, content: msg.content + chunk }
+    //           ? { ...msg, content: newContent }
+    //           : msg
+    //       )
+    //     )
+    // } catch (error) {
+    //   console.error('An error occurred during the request:', error)
+    //   setMessages((prev) => [
+    //     ...prev,
+    //     {
+    //       id: `error-${Date.now()}`,
+    //       role: 'assistant',
+    //       content: '죄송합니다, 답변을 생성하는 중 오류가 발생했습니다.',
+    //     },
+    //   ])
+    // } finally {
+    //   setIsLoading(false)
+    // }
   }
 
   const [showChatHistory, setShowChatHistory] = useState(true)
@@ -197,6 +199,15 @@ export default function ChatPage() {
       messageCount: initialMessage ? 1 : 0,
     }
     setChatSessions((prev) => [newSession, ...prev])
+    
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: input,
+    }
+
+    const newMessages = [...messages, userMessage]
+    sendChatRequest(newMessages, setMessages, setIsLoading)
   }
 
   const handleDeleteChat = (chatId: string) => {

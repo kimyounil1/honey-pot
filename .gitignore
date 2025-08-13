@@ -51,6 +51,7 @@ yarn-error.log*
 # === IDEs ===
 .vscode/
 .idea/
+TODO.txt
 
 # === Vercel ===
 .vercel

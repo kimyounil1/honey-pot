@@ -31,6 +31,7 @@ services:
     volumes:
       - ./next-js:/app
       - /app/node_modules
+      - /app/.next
     environment:
       - NODE_ENV=development
     networks:
