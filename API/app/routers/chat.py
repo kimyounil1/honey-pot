@@ -1,13 +1,15 @@
 # app/routers/chat.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Optional
 # from sqlalchemy.ext.asyncio import AysncSession
-
+import json
+from app.services.common import Mode
+from app.services.ocr import ocr_file
 from app.services.stage import prepare_llm_request
 from app.services.llm_gateway import call_llm
 
-# from app.crud import chatCRUD 
+# from app.crud import chatCRUD
 from app.models.userModel import User
 # from app.database import get_db
 
@@ -24,9 +26,23 @@ class AskBody(BaseModel):
     first_message: bool = False
     attachment_ids: Optional[List[str]] = None  # 업로드된 file_id 배열
 
+    @classmethod
+    def as_form(
+            cls,
+            text: str = Form(...),
+            first_message: bool = Form(False),
+            attachment_ids: Optional[str] = Form(None),
+    ) -> "AskBody":
+        ids = json.loads(attachment_ids) if attachment_ids else None
+        return cls(text=text, first_message=first_message, attachment_ids=ids)
+
+
+
+
 @router.post("/ask")
 async def ask(
-    body: AskBody,
+    body: AskBody = Depends(AskBody.as_form),
+    file: UploadFile | None = File(None),
     current_user: UserRead = Depends(deps.get_current_user),
     # db: AsyncSession = Depends(get_db)
 ):
@@ -47,6 +63,10 @@ async def ask(
             "mode": llm_req["mode"],
             "used_attachments": llm_req["attachments_used"],
         }
+    if llm_req["mode"] in (Mode.TERMS, Mode.REFUND):
+        ocr_text = await ocr_file(file)
+        print(f"[ROUTER] OCR extracted {len(ocr_text)} chars")
+        # TODO: OpenSearch ingest pipeline integration
 
     # 3단계: LLM 호출
     answer = await call_llm(llm_req["messages"])
