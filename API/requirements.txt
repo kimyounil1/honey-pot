@@ -17,3 +17,4 @@ python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 
 openai==1.99.6
+PyMuPDF==1.26.3
