@@ -7,24 +7,32 @@ export async function POST(req: Request) {
     const cookieStore = await cookies();
     const token = cookieStore.get('access_token')?.value;
 
-    const { messages, first_message, attachment_ids } = await req.json();
+    const { messages, attachment_ids, chat_id } = await req.json();
     const lastUserMessage = messages[messages.length-1];
 
     if (!lastUserMessage || lastUserMessage.role !== 'user') {
       return new Response('Valid user message not found in the request body.', { status: 400 });
     }
 
-    const fastApiPayload = {
+    const fastApiPayload: any = {
+      role: lastUserMessage.role,
       text: lastUserMessage.content,
-      first_message: first_message,
       attachment_ids: attachment_ids,
+      first_message: true
+    }
+
+    if(chat_id){
+      fastApiPayload.chat_id = chat_id;
+      fastApiPayload.first_message = false;
     }
     
-    const fastApiResponse = await fetch("http:///API:8000/chat/ask?access_token="+token,{
+    const fastApiResponse = await fetch(`http://API:8000/chat/ask?access_token=${token}`,
+    {
       method: "POST",
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        // 'Authorization': `Bearer ${token}`, // 인증 토큰 전달
       },
       body: JSON.stringify(fastApiPayload),
     });

@@ -11,7 +11,7 @@ class LLMRequest(TypedDict, total=False):
     static_answer: Dict[str, str]
 
 async def prepare_llm_request(
-    user_id: str,
+    user_id: int,
     text: str,
     first_message: bool = False,
     attachment_ids: Sequence[str] | None = None,

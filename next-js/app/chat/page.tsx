@@ -1,6 +1,6 @@
 "use client"
 
-import { useRouter } from "next/navigation"
+import { useRouter, useParams } from "next/navigation"
 import { useState, useEffect } from "react" // Import useEffect
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,7 +22,6 @@ import RefundFinderModal from "./refund-finder-modal"
 import RecommendationModal from "./recommendation-modal"
 
 interface ChatSession {
-  id: string
   title: string
   type: string
   lastMessage: string
@@ -30,9 +29,8 @@ interface ChatSession {
   messageCount: number
 }
 
-// Updated Message interface to include a mandatory 'id'
 interface Message {
-  id: string;
+  id: number
   role: 'user' | 'assistant';
   content: string;
 }
@@ -47,10 +45,9 @@ export default function ChatPage() {
   const [showRefundFinderModal, setShowRefundFinderModal] = useState(false)
   const [showRecommendationModal, setShowRecommendationModal] = useState(false)
 
-  const [currentChatId, setCurrentChatId] = useState<string | null>(null)
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([
     {
-      id: "1",
+      // id: "1",
       title: "실손보험 환급금 문의",
       type: "refund",
       lastMessage: "네, 확인해보니 약 150만원의 환급금이...",
@@ -58,7 +55,7 @@ export default function ChatPage() {
       messageCount: 12,
     },
     {
-      id: "2",
+      // id: "2",
       title: "보험 약관 분석",
       type: "analysis",
       lastMessage: "해당 약관에 따르면 특약 조건이...",
@@ -68,21 +65,65 @@ export default function ChatPage() {
   ])
 
   const router = useRouter();
+  const params = useParams();
+  const chatId = params?.chat_id as number | undefined;
 
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  // const [chatId, setChatId] = useState<string | undefined>(initialChatId)
+
+  const fetchChatHistory = async (id: number) => {
+    setIsLoading(true)
+    try{
+      const response = await fetch(`/api/chat/${id}`)
+      if(!response.ok){
+        router.push('/chat')
+        return;
+      }
+      const historyData: Message[] = await response.json()
+      historyData.map(msg => ({ id: msg.id, role: msg.role, content: msg.content }))
+      setMessages(historyData)
+    } catch(error){
+      console.error("Failed to fetch chat history: ", error)
+      router.push("/chat")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 2. URL 파라미터가 변경되면 chatId 상태를 동기화
+    useEffect(() => {
+    if (chatId) {
+      // chatId가 있으면 기존 대화 내역을 불러옵니다.
+      fetchChatHistory(chatId);
+    } else {
+      // chatId가 없으면 새 채팅 상태이므로 메시지 목록을 비웁니다.
+      setMessages([]);
+    }
+  }, [chatId]); // 의존성 배열에 chatId를 넣어 chatId가 바뀔 때마다 재실행되도록 합니다.
+  // useEffect(() => {
+  //   // 페이지 이동 시(예: 뒤로가기) URL의 chat_id를 상태에 반영
+  //   const newChatId = params?.chat_id as string | undefined;
+  //   if (newChatId !== chatId) {
+  //       setChatId(newChatId);
+  //       // TODO: 여기서 해당 채팅의 이전 메시지를 불러오는 로직을 추가할 수 있습니다.
+  //       // 예: fetchMessages(newChatId);
+  //       // 지금은 새 채팅으로 간주하고 메시지를 비웁니다.
+  //       if(!newChatId) setMessages([]);
+  //   }
+  // }, [chatId]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value)
   }
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (!input.trim()) return
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
 
     const userMessage: Message = {
-      id: `user-${Date.now()}`,
+      id: Date.now().valueOf(),
       role: 'user',
       content: input,
     }
@@ -92,72 +133,46 @@ export default function ChatPage() {
     setInput('')
     setIsLoading(true)
 
-    await sendChatRequest(newMessages, setMessages, setIsLoading)
-    // try {
-    //   const response = await fetch('/api/chat', {
-    //     method: 'POST',
-    //     headers: { 'Content-Type': 'application/json' },
-    //     body: JSON.stringify({
-    //       messages: newMessages,
-    //       // Add other data your `route.ts` expects
-    //       // user_id: "20221", // Example user_id
-    //       first_message: newMessages.length === 1,
-    //       attachment_ids: [],
-    //     }),
-    //   })
+    const assistantMessageId = Date.now().valueOf()
+    // // 빈 어시스턴트 메시지 추가
+    // setMessages((prev) => [
+    //   ...prev,
+    //   { id: assistantMessageId, role: 'assistant', content: '' },
+    // ]);
 
-    //   if (!response.ok || !response.body) {
-    //     const errorText = await response.text()
-    //     throw new Error(`Server error: ${errorText || response.statusText}`)
-    //   }
+    const response = await sendChatRequest(newMessages, chatId)
+    setIsLoading(false)
+
+    if (response && !response.error) {
+      // 응답에서 새로운 chat_id와 답변을 추출
+      const newChatId = response.chat_id;
+      const assistantResponse = response.answer;
       
-    //   const assistantMessageId = `assistant-${Date.now()}`
-    //   setMessages((prev) => [
-    //     ...prev,
-    //     { id: assistantMessageId, role: 'assistant', content: '' },
-    //   ])
+      // 상태 업데이트
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === assistantResponse.chat_id
+            ? { ...msg, content: assistantResponse }
+            : msg
+        )
+      );
 
-    //   const reader = response.body.getReader()
-    //   const decoder = new TextDecoder()
-    //   let responseText = ''
-
-    //   while (true) {
-    //     const { value, done } = await reader.read()
-    //     if (done) break
-    //     responseText += decoder.decode(value)
-    //   }
-
-    //   let newContent = responseText
-    //   try {
-    //     const parsed = JSON.parse(responseText)
-    //     if(parsed.answer){
-    //       newContent = parsed.answer
-    //     }
-    //   } catch(e) {
-    //     // ?
-    //   }
-    //     // const chunk = decoder.decode(value)
-    //     setMessages((prev) =>
-    //       prev.map((msg) =>
-    //         msg.id === assistantMessageId
-    //           // ? { ...msg, content: msg.content + chunk }
-    //           ? { ...msg, content: newContent }
-    //           : msg
-    //       )
-    //     )
-    // } catch (error) {
-    //   console.error('An error occurred during the request:', error)
-    //   setMessages((prev) => [
-    //     ...prev,
-    //     {
-    //       id: `error-${Date.now()}`,
-    //       role: 'assistant',
-    //       content: '죄송합니다, 답변을 생성하는 중 오류가 발생했습니다.',
-    //     },
-    //   ])
-    // } finally {
-    //   setIsLoading(false)
-    // }
+      // 만약 새로운 chat_id를 받았다면 (첫 메시지였다면)
+      if (newChatId && !chatId) {
+        setChatId(newChatId);
+        // URL을 업데이트합니다.
+        router.push(`/chat/${newChatId}`, { scroll: false });
+      }
+    } else {
+      // 에러 처리
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === assistantMessageId
+            ? { ...msg, content: response.error || '오류가 발생했습니다.' }
+            : msg
+        )
+      );
+    }
   }
 
   const [showChatHistory, setShowChatHistory] = useState(true)
@@ -175,13 +190,12 @@ export default function ChatPage() {
   }
 
   const handleStartChatFromModal = (type: string, title?: string, initialMessage?: string) => {
-    const newChatId = Date.now().toString()
-    setCurrentChatId(newChatId)
+    // TODO: 여기도 위에처럼 바꿔줘야 함
     
     if (initialMessage) {
       setMessages([
         {
-          id: "initial-user-msg", // ID is present, which is good
+          id: 99999, // ID is present, which is good
           role: "user",
           content: initialMessage,
         }
@@ -190,40 +204,41 @@ export default function ChatPage() {
       setMessages([]);
     }
 
-    const newSession: ChatSession = {
-      id: newChatId,
-      title: title || `새 상담 - ${new Date().toLocaleDateString()}`,
-      type,
-      lastMessage: initialMessage || "",
-      timestamp: new Date(),
-      messageCount: initialMessage ? 1 : 0,
-    }
-    setChatSessions((prev) => [newSession, ...prev])
+    // const newSession: ChatSession = {
+    //   // id: newChatId,
+    //   title: title || `새 상담 - ${new Date().toLocaleDateString()}`,
+    //   type,
+    //   lastMessage: initialMessage || "",
+    //   timestamp: new Date(),
+    //   messageCount: initialMessage ? 1 : 0,
+    // }
+    // setChatSessions((prev) => [newSession, ...prev])
     
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: input,
-    }
+    // // const userMessage: Message = {
+    // //   role: 'user',
+    // //   content: input,
+    // //   // chat_id: chatId,
+    // //   first_message: false
+    // // }
 
-    const newMessages = [...messages, userMessage]
-    sendChatRequest(newMessages, setMessages, setIsLoading)
+    // const newMessages = [...messages, userMessage]
+    // sendChatRequest(newMessages, setMessages, setIsLoading)
   }
 
-  const handleDeleteChat = (chatId: string) => {
-    setChatSessions((prev) => prev.filter((chat) => chat.id !== chatId))
-    if (currentChatId === chatId) {
-      setCurrentChatId(null)
-      setMessages([])
-    }
-  }
+  // TODO: 추후에 다른 방식으로 구현하도록 할것
+  // const handleDeleteChat = (chatId: string) => {
+  //   setChatSessions((prev) => prev.filter((chat) => chat.id !== chatId))
+  //   if (currentChatId === chatId) {
+  //     setCurrentChatId(null)
+  //     setMessages([])
+  //   }
+  // }
 
-  const handleSelectChat = (chatId: string) => {
-    setCurrentChatId(chatId)
+  // const handleSelectChat = (chatId: string) => {
+    // setCurrentChatId(chatId)
     // Here you would typically fetch the message history for the selected chat
     // For now, we just clear the messages as per the original logic.
-    setMessages([])
-  }
+    // setMessages([])
 
   const handleInsuranceCompanyComplete = (companies: string[] | null) => {
     if (companies === null) {
@@ -334,7 +349,7 @@ export default function ChatPage() {
   }
 
   const resetToHome = () => {
-    setCurrentChatId(null);
+    // setCurrentChatId(null);
     setMessages([]);
     setShowAllQuickQuestions(false);
   }
@@ -407,7 +422,8 @@ export default function ChatPage() {
               <Input placeholder="채팅 검색" className="pl-10" />
             </div>
             
-            <h4 className="text-sm font-medium text-gray-500 mb-3">최근 채팅</h4>
+            {/* // TODO : chatID 관련된 부분 임시 주석처리 */}
+            {/* <h4 className="text-sm font-medium text-gray-500 mb-3">최근 채팅</h4>
             <ScrollArea className="flex-1">
               <div className="space-y-2">
                 {chatSessions.map((chat) => (
@@ -447,7 +463,7 @@ export default function ChatPage() {
                   </div>
                 ))}
               </div>
-            </ScrollArea>
+            </ScrollArea> */}
           </div>
         )}
 

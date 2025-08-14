@@ -1,11 +1,11 @@
-export async function sendChatRequest(newMessages, setMessages, setIsLoading){
+export async function sendChatRequest(newMessages: any[], currentChatId: number | undefined){
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: newMessages,
-          first_message: newMessages.length === 1,
+          messages: newMessages.map(({id, ...rest }) => rest),
+          chat_id: currentChatId,
           attachment_ids: [],
         }),
       })
@@ -15,11 +15,11 @@ export async function sendChatRequest(newMessages, setMessages, setIsLoading){
         throw new Error(`Server error: ${errorText || response.statusText}`)
       }
       
-      const assistantMessageId = `assistant-${Date.now()}`
-      setMessages((prev) => [
-        ...prev,
-        { id: assistantMessageId, role: 'assistant', content: '' },
-      ])
+      // const assistantMessageId = `assistant-${Date.now()}`
+      // setMessages((prev) => [
+      //   ...prev,
+      //   { id: assistantMessageId, role: 'assistant', content: '' },
+      // ])
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
@@ -31,35 +31,43 @@ export async function sendChatRequest(newMessages, setMessages, setIsLoading){
         responseText += decoder.decode(value)
       }
 
-      let newContent = responseText
-      try {
-        const parsed = JSON.parse(responseText)
-        if(parsed.answer){
-          newContent = parsed.answer
-        }
-      } catch(e) {
-        // ?
-      }
-        // const chunk = decoder.decode(value)
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              // ? { ...msg, content: msg.content + chunk }
-              ? { ...msg, content: newContent }
-              : msg
-          )
-        )
-    } catch (error) {
-      console.error('An error occurred during the request:', error)
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `error-${Date.now()}`,
-          role: 'assistant',
-          content: '죄송합니다, 답변을 생성하는 중 오류가 발생했습니다.',
-        },
-      ])
-    } finally {
-      setIsLoading(false)
-    }
+      return JSON.parse(responseText);
+  } catch(error){
+    console.error('An error occurred during the request:', error)
+    return{
+      error: "죄송합니다. 답변 생성 중 오류가 발생했습니다.",
+    };
+  } 
 }
+//       let newContent = responseText
+//       try {
+//         const parsed = JSON.parse(responseText)
+//         if(parsed.answer){
+//           newContent = parsed.answer
+//         }
+//       } catch(e) {
+//         // ?
+//       }
+//         const chunk = decoder.decode(value)
+//         setMessages((prev) =>
+//           prev.map((msg) =>
+//             msg.id === assistantMessageId
+//               // ? { ...msg, content: msg.content + chunk }
+//               ? { ...msg, content: newContent }
+//               : msg
+//           )
+//         )
+//     } catch (error) {
+//       console.error('An error occurred during the request:', error)
+//       setMessages((prev) => [
+//         ...prev,
+//         {
+//           id: `error-${Date.now()}`,
+//           role: 'assistant',
+//           content: '죄송합니다, 답변을 생성하는 중 오류가 발생했습니다.',
+//         },
+//       ])
+//     } finally {
+//       setIsLoading(false)
+//     }  
+// }
