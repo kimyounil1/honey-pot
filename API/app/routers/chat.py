@@ -24,7 +24,6 @@ class AskBody(BaseModel):
     # user_id: int
     role: str = "user"
     text: str
-    first_message: bool = False
     attachment_ids: Optional[List[str]] = None  # 업로드된 file_id 배열
     chat_id: Optional[int] = None
     file: Optional[UploadFile] = None
@@ -36,7 +35,6 @@ class AskBody(BaseModel):
     def as_form(
             cls,
             text: str = Form(...),
-            first_message: bool = Form(False),
             attachment_ids: Optional[str] = Form(None),
             chat_id: Optional[str] = Form(None),
             file: Optional[UploadFile] = File(None)
@@ -51,7 +49,7 @@ class AskBody(BaseModel):
                 raise HTTPException(status_code=422, detail="Invalid chat_id")
         valid_file = file if file and file.filename else None
 
-        return cls(text=text, first_message=first_message, attachment_ids=ids, chat_id=parsed_chat_id, file=valid_file)
+        return cls(text=text, attachment_ids=ids, chat_id=parsed_chat_id, file=valid_file)
 
 @router.get("/{chat_id}/messages", response_model=List[chatSchema.Message])
 async def read_chat_messages(
@@ -67,18 +65,16 @@ async def read_chat_messages(
 @router.post("/ask")
 async def ask(
     form_data: AskBody = Depends(AskBody.as_form),
-    # file: UploadFile | None = File(None),
     current_user: userSchema.UserRead = Depends(deps.get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     body = form_data
     file = form_data.file
-    # print(f"[ROUTER] /chat/ask user_id={body.user_id} first={body.first_message} text='{body.text[:80]}'")
     # 2단계: messages 준비
     llm_req = await prepare_llm_request(
         user_id=current_user.user_id,
         text=body.text,
-        first_message=body.first_message,
+        # first_message=body.first_message,
         attachment_ids=body.attachment_ids
     )
 
@@ -101,7 +97,7 @@ async def ask(
     attachments_used = llm_req["attachments_used"]  
 
     # 채팅의 시작일 경우 create_chat 호출
-    if body.first_message:
+    if not body.chat_id:
         newChat = await chatCRUD.create_chat(
             db,
             chatSchema.NewChat(
@@ -113,9 +109,6 @@ async def ask(
         # 채팅의 시작일 경우 chat_id를 받아옴
         chat_id = newChat.id
     else:
-        if not body.chat_id:
-        # 기존 대화인데 chat_id가 없는 경우, 클라이언트 오류이므로 예외 처리
-            raise HTTPException(status_code=400, detail="기존 대화에는 chat_id가 반드시 필요합니다.")
         chat_id = body.chat_id
 
     await chatCRUD.create_message(

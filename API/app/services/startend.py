@@ -8,7 +8,8 @@ def classify_with_llm(user_text: str, attachment_ids: Optional[List[str]] = None
     print(f"[STARTEND] classify -> {decision.flow} | text='{user_text[:80]}'")
     return decision
 
-def build_messages(mode: Mode, user_text: str, context: str = "", first_message: bool = False) -> List[Dict[str, str]]:
+# def build_messages(mode: Mode, user_text: str, context: str = "", first_message: bool = False) -> List[Dict[str, str]]:
+def build_messages(mode: Mode, user_text: str, context: str = "") -> List[Dict[str, str]]:
     if mode == Mode.TERMS:
         msgs = terms_analysis.build_messages(user_text, context)
     elif mode == Mode.REFUND:
