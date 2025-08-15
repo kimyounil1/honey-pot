@@ -1,146 +1,128 @@
-from enum import Enum
-from dataclasses import dataclass
-from typing import List, Optional
-import logging
+# app/services/common.py
+from __future__ import annotations
 import os
+from enum import Enum
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
-from openai import OpenAI  # openai>=1.x
-
-logger = logging.getLogger(__name__)
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
+# ================== 모드 정의 (RAG는 '스위치'로만 운용) ==================
 class Mode(str, Enum):
-    TERMS = "TERMS"      # 약관분석
-    REFUND = "REFUND"    # 환급금찾기
-    RECO = "RECO"        # 보험추천
-    GENERAL = "GENERAL"  # 보험 일반 질문
-    RAG = "RAG"          # 첨부 기반 약관/근거 인용
-    FALLBACK = "FALLBACK"
+    TERMS = "TERMS"          # 약관/특약/증권 분석
+    REFUND = "REFUND"        # 환급금 추정/안내
+    RECOMMEND = "RECOMMEND"  # 담보/플랜 추천
+    GENERAL = "GENERAL"      # 보험 일반질문(절차/서류 등)
+    FALLBACK = "FALLBACK"    # 도메인 외/모호
 
-# ===== 키워드 힌트(보조 규칙) =====
-TERMS_TRIGGERS  = {"약관", "조항", "면책", "보장 범위", "지급 기준", "보장한도", "보상 제외", "특약"}
-REFUND_TRIGGERS = {"환급", "해지환급금", "만기환급금", "해지", "환급률", "적립", "무해지", "청구", "환불", "돌려"}
-RECO_TRIGGERS   = {"추천", "설계", "담보", "보장갭", "갭", "권장", "보험사 비교", "특약 추천"}
-GENERAL_TRIGGERS= {"서류", "절차", "증빙", "필요서류", "접수", "방법", "준비물", "문의", "일반"}
-RAG_HINTS       = {"첨부", "파일", "PDF", "문서", "원문", "근거 찾아줘", "조항 인용", "붙인 약관", "컨텍스트"}
+class RetrievalSuggestion(str, Enum):
+    ON = "on"
+    OFF = "off"
+    AUTO = "auto"
 
-class ClassifierOut(BaseModel):
-    primary_flow: Mode = Field(..., description="TERMS|REFUND|RECO|GENERAL|RAG|FALLBACK")
-    confidence: float = Field(..., ge=0.0, le=1.0)
-    reasons: str
-    tags: List[str] = []
-
+# ================== 결정 구조체 ==================
 @dataclass
 class FlowDecision:
     flow: Mode
-    confidence: float
-    reasons: str
-    tags: List[str]
+    confidence: float = 0.0
+    reasons: str = ""
+    tags: List[str] = field(default_factory=list)
+    entities: Dict[str, Any] = field(default_factory=dict)
+    retrieval_suggestion: RetrievalSuggestion = RetrievalSuggestion.AUTO
+    use_retrieval: bool = False
 
-CLASSIFIER_SYSTEM = """당신은 보험 도메인 대화 라우터입니다.
-사용자 입력과 첨부 존재 여부를 보고 다음 중 하나의 primary_flow를 고르세요:
-- RAG: 첨부 문서를 근거로 조항/근거 인용이 필요한 경우
-- TERMS: 약관/특약/보장범위/면책/지급기준 등의 '약관 해석'이 핵심 (첨부 없어도 됨)
-- REFUND: 해지환급금/만기환급금/무해지 등 환급 관련 질의
-- RECO: 사용자 상황 기반 보장갭 진단/담보/한도 추천
-- GENERAL: 청구서류/절차/실무 가이드 등 일반 질의
-- FALLBACK: 보험 도메인과 무관하거나 모호함
+# ================== RAG 스위치 정책 ==================
+_FORCE_OFF = ["근거 없이", "출처 없이", "인용 빼고", "대략만", "대충만"]
+_HINT_RAG  = ["근거", "조항", "출처", "면책", "원문", "링크", "증빙"]
 
-주의:
-- 키워드만 보지 말고 문맥을 보세요.
-- 첨부가 있어도 인용/근거 요구가 약하면 RAG가 아닐 수 있습니다.
-- 반드시 JSON만 출력하세요.
-"""
-
-CLASSIFIER_USER_TMPL = """[사용자 입력]
-{text}
-
-[메타]
-- 첨부 개수: {n_attachments}
-
-[출력 포맷(JSON)]
-{{
-  "primary_flow": "RAG|TERMS|REFUND|RECO|GENERAL|FALLBACK",
-  "confidence": 0.0~1.0,
-  "reasons": "간단한 근거",
-  "tags": ["연관 키워드", "..."]
-}}
-"""
-
-def _call_llm_classifier(text: str, n_attachments: int) -> ClassifierOut:
-    user = CLASSIFIER_USER_TMPL.format(text=text, n_attachments=n_attachments)
-    resp = client.chat.completions.create(
-        model=os.getenv("ROUTER_MODEL", "gpt-4o-mini"),
-        temperature=0,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": CLASSIFIER_SYSTEM},
-            {"role": "user", "content": user},
-        ],
-    )
-    content = resp.choices[0].message.content
-    return ClassifierOut.model_validate_json(content)
-
-def _has_any(text: str, needles: set) -> bool:
-    return any(k in text for k in needles)
-
-def _apply_priority_rules(
-    text: str,
+def decide_use_retrieval(
+    user_text: str,
     n_attachments: int,
-    primary_flow: Mode,
-    confidence: float,
-    tags: List[str]
-) -> Mode:
-    t = text.strip()
+    mode: Mode,
+    suggestion: RetrievalSuggestion
+) -> bool:
+    """
+    최종 RAG 스위치 결정.
+    - GENERAL은 항상 False
+    - 강제 OFF 문구가 있으면 False
+    - 첨부가 있거나 근거/조항/출처 요구가 있으면 (TERMS/REFUND/RECOMMEND 한정) True
+    - 분류 LLM 제안(suggestion)은 보조 신호
+    """
+    if mode == Mode.GENERAL:
+        return False
 
-    wants_terms   = _has_any(t, TERMS_TRIGGERS)
-    wants_refund  = _has_any(t, REFUND_TRIGGERS)
-    wants_reco    = _has_any(t, RECO_TRIGGERS)
-    wants_general = _has_any(t, GENERAL_TRIGGERS)
-    hints_rag     = _has_any(t, RAG_HINTS)
+    txt = (user_text or "").strip()
 
-    # 우선순위: RAG > TERMS > REFUND > RECO > GENERAL > FALLBACK
-    # 1) 첨부 + (약관/근거/인용) 의도 → RAG
-    if n_attachments > 0 and (wants_terms or hints_rag):
-        return Mode.RAG
+    if any(k in txt for k in _FORCE_OFF):
+        return False
 
-    # 2) 약관 해석 중심
-    if wants_terms:
+    if n_attachments > 0:
+        return mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND)
+
+    if any(k in txt for k in _HINT_RAG):
+        return mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND)
+
+    if suggestion == RetrievalSuggestion.ON and mode in (Mode.TERMS, Mode.REFUND):
+        return True
+
+    return False
+
+# ================== 분류 + 스위치 ==================
+def _map_mode(s: str) -> Mode:
+    """
+    분류 LLM 산출을 안전 매핑:
+    - "RECO" → RECOMMEND
+    - "RECOMMEND" → RECOMMEND
+    - "RAG" → TERMS (RAG는 모드가 아니므로 약관해석으로 귀속)
+    - 그 외 실패 → GENERAL
+    """
+    if not s:
+        return Mode.GENERAL
+    u = s.upper()
+    if u in ("RECO", "RECOMMEND"):
+        return Mode.RECOMMEND
+    if u == "RAG":
         return Mode.TERMS
-
-    # 3) 환급
-    if wants_refund:
-        return Mode.REFUND
-
-    # 4) 추천
-    if wants_reco:
-        return Mode.RECO
-
-    # 5) 일반
-    if wants_general:
+    try:
+        return Mode(u)
+    except Exception:
         return Mode.GENERAL
 
-    # 6) LLM 판단 반영(신뢰 충분)
-    if confidence >= 0.55 and primary_flow in (Mode.RAG, Mode.TERMS, Mode.REFUND, Mode.RECO, Mode.GENERAL):
-        return primary_flow
-
-    # 7) 나머지
-    return Mode.FALLBACK
-
-def decide_flow_with_llm(user_text: str, attachment_ids: Optional[List[str]]) -> FlowDecision:
-    n_attachments = len(attachment_ids or [])
+def _map_suggestion(s: str) -> RetrievalSuggestion:
     try:
-        out = _call_llm_classifier(user_text, n_attachments)
-        final_flow = _apply_priority_rules(
-            text=user_text,
-            n_attachments=n_attachments,
-            primary_flow=out.primary_flow,
-            confidence=out.confidence,
-            tags=out.tags,
-        )
-        logger.info(f"[CLASSIFIER] primary={out.primary_flow}, final={final_flow}, conf={out.confidence}, tags={out.tags}")
-        return FlowDecision(flow=final_flow, confidence=out.confidence, reasons=out.reasons, tags=out.tags)
+        return RetrievalSuggestion((s or "auto").lower())
     except Exception:
-        logger.exception("Classifier failed, falling back.")
-        return FlowDecision(flow=Mode.FALLBACK, confidence=0.0, reasons="classifier_error", tags=[])
+        return RetrievalSuggestion.AUTO
+
+def decide_flow_with_llm(user_text: str, attachment_ids: List[str]) -> FlowDecision:
+    """
+    내부에서 경량 분류 LLM을 호출하고 서버 정책으로 RAG 스위치를 최종 결정.
+    """
+    # 지연 임포트로 순환 참조 방지
+    from .llm_gateway import run_classifier_llm
+
+    meta = {"count": len(attachment_ids or [])}
+    try:
+        raw = run_classifier_llm(user_text=user_text, attachments_meta=meta)
+    except Exception:
+        return FlowDecision(
+            flow=Mode.GENERAL, confidence=0.0, reasons="classifier_error",
+            tags=[], entities={}, retrieval_suggestion=RetrievalSuggestion.AUTO, use_retrieval=False
+        )
+
+    mode  = _map_mode(raw.get("primary_flow", "GENERAL"))
+    conf  = float(raw.get("confidence", 0.0))
+    ents  = raw.get("entities", {}) or {}
+    sug   = _map_suggestion(raw.get("retrieval_suggestion", "auto"))
+    rsn   = (raw.get("reasons") or "")[:500]
+    tags  = raw.get("tags", []) or []
+
+    use_ret = decide_use_retrieval(
+        user_text=user_text,
+        n_attachments=meta["count"],
+        mode=mode,
+        suggestion=sug
+    )
+
+    return FlowDecision(
+        flow=mode, confidence=conf, reasons=rsn, tags=tags,
+        entities=ents, retrieval_suggestion=sug, use_retrieval=use_ret
+    )

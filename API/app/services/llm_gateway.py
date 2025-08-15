@@ -1,17 +1,77 @@
-
+# app/services/llm_gateway.py
+from __future__ import annotations
+import json
 import os
-from typing import Dict, Any, List
-from openai import AsyncOpenAI
+from typing import Any, Dict, List, Optional
 
-client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+from openai import OpenAI
 
-# 모드별 모델/샘플 파라미터를 다르게 쓰고 싶으면 여기서 조절
-DEFAULT_MODEL = "gpt-4o-mini"
+# 환경 변수(없으면 기본값)
+CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "gpt-4o-mini")
+ANSWERER_MODEL   = os.getenv("ANSWERER_MODEL",   "gpt-4o")
 
-async def call_llm(messages: List[Dict[str, str]], model: str = DEFAULT_MODEL) -> str:
+_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# ================== 분류용 LLM ==================
+def run_classifier_llm(user_text: str, attachments_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    3단계: LLM 호출 전용. 입력은 2단계에서 만든 messages 그대로.
+    모드 분류/엔터티 추출 전용 경량 호출 (JSON ONLY).
     """
-    resp = await client.responses.create(model=model, input=messages)
-    # 최신 SDK는 output_text 제공(툴 호출 등 특수 경우엔 대비)
-    return getattr(resp, "output_text", str(resp))
+    system = (
+        "당신은 보험 도메인 대화 라우터입니다. 사용자 질문과 첨부 정보를 분석하여 JSON만 출력하세요.\n"
+        "{"
+        "\"primary_flow\":\"TERMS|REFUND|RECOMMEND|GENERAL|FALLBACK\","
+        "\"confidence\":0.0,"
+        "\"entities\":{"
+        "  \"insurer\":null,\"product\":null,\"version\":null,"
+        "  \"topic\":null,\"icd10_candidates\":[]"
+        "},"
+        "\"retrieval_suggestion\":\"on|off|auto\","
+        "\"reasons\":\"...\","
+        "\"tags\":[\"...\"]"
+        "}\n"
+        "JSON 이외의 텍스트는 출력하지 마세요."
+    )
+
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": (user_text or "")},
+    ]
+    if attachments_meta:
+        try:
+            meta_str = json.dumps(attachments_meta)[:2000]
+        except Exception:
+            meta_str = str(attachments_meta)[:2000]
+        messages.append({"role": "system", "content": f"[attachments-meta]\n{meta_str}"})
+
+    resp = _client.chat.completions.create(
+        model=CLASSIFIER_MODEL,
+        messages=messages,
+        temperature=0.1,
+    )
+    content = (resp.choices[0].message.content or "").strip()
+
+    try:
+        return json.loads(content)
+    except Exception:
+        return {
+            "primary_flow": "GENERAL",
+            "confidence": 0.3,
+            "entities": {},
+            "retrieval_suggestion": "auto",
+            "reasons": "parse_error",
+            "tags": []
+        }
+
+# ================== 최종 Answerer LLM (chat.py 호환) ==================
+def run_llm(messages: List[Dict[str, str]]) -> str:
+    resp = _client.chat.completions.create(
+        model=ANSWERER_MODEL,
+        messages=messages,
+        temperature=0.2,
+    )
+    return (resp.choices[0].message.content or "").strip()
+
+# chat.py는 async call_llm(...)을 호출하므로 간단 래퍼 제공
+async def call_llm(messages: List[Dict[str, str]]) -> str:
+    return run_llm(messages)

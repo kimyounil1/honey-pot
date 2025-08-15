@@ -18,7 +18,7 @@ from app.models import userModel
 from app.auth import deps
 from app.database import get_db
 
-router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(deps.get_current_user)])
+router = APIRouter(prefix="/chat", tags=["chat"])
 
 class AskBody(BaseModel):
     # user_id: int
@@ -50,26 +50,12 @@ class AskBody(BaseModel):
         valid_file = file if file and file.filename else None
 
         return cls(text=text, attachment_ids=ids, chat_id=parsed_chat_id, file=valid_file)
-    
-@router.get("/chats/{user_id}", response_model=List[chatSchema.Chat])
-async def read_user_chats(
-    user_id: int,
-    current_user: userSchema.UserRead = Depends(deps.get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    # admin이거나 token에서 추출한 본인의 user_id가 요청한 user_id와 일치해야 요청 허가
-    if current_user.user_id == 1 or current_user.user_id == user_id:
-        user_chats = await chatCRUD.get_chat_list(db=db, user_id=user_id)
-    else:
-        raise HTTPException(status_code=403, detail="forbidden contents")
-    if not user_chats:
-        raise HTTPException(status_code=404, detail="no chats")
-    return user_chats
 
 @router.get("/{chat_id}/messages", response_model=List[chatSchema.Message])
 async def read_chat_messages(
     chat_id: int, 
     db: AsyncSession = Depends(get_db), 
+    current_user: userModel.User = Depends(deps.get_current_user)
 ):
     messages = await chatCRUD.get_messages(db=db, chat_id=chat_id)
     if not messages:
@@ -84,7 +70,8 @@ async def ask(
 ):
     body = form_data
     file = form_data.file
-    # 2단계: messages 준비
+
+    # 2단계: messages 준비 (분류→가드룰→DB우선→조건부RAG)
     llm_req = await prepare_llm_request(
         user_id=current_user.user_id,
         text=body.text,
@@ -100,12 +87,17 @@ async def ask(
             "mode": llm_req["mode"],
             "used_attachments": llm_req["attachments_used"],
         }
-    if file and llm_req["mode"] in (Mode.TERMS, Mode.REFUND):
-        ocr_text = await ocr_file(file)
-        print(f"[ROUTER] OCR extracted {len(ocr_text)} chars")
-        # TODO: OpenSearch ingest pipeline integration
 
-    # 3단계: LLM 호출
+    # 파일 업로드가 있고, 약관/환급 모드면 OCR 인제스트(로그용)
+    if file and llm_req["mode"] in (Mode.TERMS, Mode.REFUND):
+        try:
+            ocr_text = await ocr_file(file)
+            print(f"[ROUTER] OCR extracted {len(ocr_text)} chars")
+            # TODO: OpenSearch ingest pipeline integration
+        except Exception as e:
+            print(f"[ROUTER] OCR failed: {e}")
+
+    # 3단계: LLM 호출(최종 Answerer)
     answer = await call_llm(llm_req["messages"])
     mode = llm_req["mode"]
     attachments_used = llm_req["attachments_used"]  
@@ -117,7 +109,7 @@ async def ask(
             chatSchema.NewChat(
                 user_id = current_user.user_id,
                 title=body.text[:30],
-                type=mode
+                type=mode  # 팀 스키마와 일치(필요시 .lower()로 통일)
             )
         )
         # 채팅의 시작일 경우 chat_id를 받아옴
