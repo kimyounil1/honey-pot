@@ -9,7 +9,7 @@ from app.services.common import Mode
 from app.services.ocr import ocr_file
 from app.services.stage import prepare_llm_request
 from app.services.llm_gateway import call_llm
-
+from app.services.ingest import ingest_policy
 from app.schemas import userSchema, chatSchema
 # from app.schemas.chatSchema import NewChat, Message
 
@@ -93,7 +93,17 @@ async def ask(
         try:
             ocr_text = await ocr_file(file)
             print(f"[ROUTER] OCR extracted {len(ocr_text)} chars")
-            # TODO: OpenSearch ingest pipeline integration
+            meta = {
+                "policy_id": f"{current_user.user_id}-{file.filename}",
+                "uploader_id": current_user.user_id,
+                "filename": file.filename,
+            }
+            try:
+                indexed = await ingest_policy(ocr_text, meta)
+                print(f"[ROUTER] OpenSearch indexed {indexed} docs policy_id={meta['policy_id']}")
+            except Exception as ingest_err:
+                print(f"[ROUTER] Ingest failed: {ingest_err}")
+
         except Exception as e:
             print(f"[ROUTER] OCR failed: {e}")
 

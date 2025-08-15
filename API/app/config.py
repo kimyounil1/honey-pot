@@ -8,6 +8,14 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str
     WEBHOOK_SECRET: str = ""
 
+    # OpenSearch settings
+    OPENSEARCH_HOST: str
+    OPENSEARCH_USERNAME: str
+    OPENSEARCH_PASSWORD: str
+    OPENSEARCH_INDEX: str
+    OPENSEARCH_PIPELINE: str # optional ingest pipeline for embeddings
+    OPENSEARCH_MAX_CHARS: int # Titan v2 ~8k tokens ≈50k chars per chunk
+    OPENSEARCH_REGION: str
     # By removing the inner Config class and os.getenv, we rely solely on environment
     # variables, which is the standard practice for Docker.
 
