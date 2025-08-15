@@ -18,7 +18,7 @@ from app.models import userModel
 from app.auth import deps
 from app.database import get_db
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(deps.get_current_user)])
 
 class AskBody(BaseModel):
     # user_id: int
@@ -50,12 +50,26 @@ class AskBody(BaseModel):
         valid_file = file if file and file.filename else None
 
         return cls(text=text, attachment_ids=ids, chat_id=parsed_chat_id, file=valid_file)
+    
+@router.get("/chats/{user_id}", response_model=List[chatSchema.Chat])
+async def read_user_chats(
+    user_id: int,
+    current_user: userSchema.UserRead = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # admin이거나 token에서 추출한 본인의 user_id가 요청한 user_id와 일치해야 요청 허가
+    if current_user.user_id == 1 or current_user.user_id == user_id:
+        user_chats = await chatCRUD.get_chat_list(db=db, user_id=user_id)
+    else:
+        raise HTTPException(status_code=403, detail="forbidden contents")
+    if not user_chats:
+        raise HTTPException(status_code=404, detail="no chats")
+    return user_chats
 
 @router.get("/{chat_id}/messages", response_model=List[chatSchema.Message])
 async def read_chat_messages(
     chat_id: int, 
     db: AsyncSession = Depends(get_db), 
-    current_user: userModel.User = Depends(deps.get_current_user)
 ):
     messages = await chatCRUD.get_messages(db=db, chat_id=chat_id)
     if not messages:
