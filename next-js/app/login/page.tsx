@@ -24,15 +24,19 @@ export default function LoginPage() {
       return
     }
     try{
+      const formData = new URLSearchParams()
+      formData.append("username", email)
+      formData.append("password", password)
+
       const response = await fetch(`/api/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", },
-        body: JSON.stringify({ email: email, password: password }),
+        // headers: { "Content-Type": "application/json", },
+        // body: JSON.stringify({ email: email, password: password }),
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: formData.toString(),
       })
 
       if (response.ok) {
-        // const data = await response.json();
-        // document.cookie = `access_token=${data.access_token}; path=/`;
         router.push("/chat");
       } else if (response.status === 401) {
         // 잘못된 사용자 처리

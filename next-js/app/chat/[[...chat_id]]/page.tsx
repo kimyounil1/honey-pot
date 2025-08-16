@@ -66,12 +66,18 @@ export default function ChatPage() {
 
   const router = useRouter();
   const params = useParams();
-  const chatId = params?.chat_id as number | undefined;
+  const [chatId, setChatId] = useState<number | undefined>();
 
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  // const [chatId, setChatId] = useState<string | undefined>(initialChatId)
+
+  useEffect(() => {
+    const paramChatIdArray = params?.chat_id as string[] | undefined;
+    const paramChatId = paramChatIdArray?.[0] ? Number(paramChatIdArray[0]) : undefined;
+    setChatId(paramChatId);
+  }, [params?.chat_id]);
+
 
   const fetchChatHistory = async (id: number) => {
     setIsLoading(true)
@@ -82,7 +88,6 @@ export default function ChatPage() {
         return;
       }
       const historyData: Message[] = await response.json()
-      historyData.map(msg => ({ id: msg.id, role: msg.role, content: msg.content }))
       setMessages(historyData)
     } catch(error){
       console.error("Failed to fetch chat history: ", error)
@@ -92,27 +97,13 @@ export default function ChatPage() {
     }
   }
 
-  // 2. URL 파라미터가 변경되면 chatId 상태를 동기화
     useEffect(() => {
     if (chatId) {
-      // chatId가 있으면 기존 대화 내역을 불러옵니다.
       fetchChatHistory(chatId);
     } else {
-      // chatId가 없으면 새 채팅 상태이므로 메시지 목록을 비웁니다.
       setMessages([]);
     }
-  }, [chatId]); // 의존성 배열에 chatId를 넣어 chatId가 바뀔 때마다 재실행되도록 합니다.
-  // useEffect(() => {
-  //   // 페이지 이동 시(예: 뒤로가기) URL의 chat_id를 상태에 반영
-  //   const newChatId = params?.chat_id as string | undefined;
-  //   if (newChatId !== chatId) {
-  //       setChatId(newChatId);
-  //       // TODO: 여기서 해당 채팅의 이전 메시지를 불러오는 로직을 추가할 수 있습니다.
-  //       // 예: fetchMessages(newChatId);
-  //       // 지금은 새 채팅으로 간주하고 메시지를 비웁니다.
-  //       if(!newChatId) setMessages([]);
-  //   }
-  // }, [chatId]);
+  }, [chatId]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value)
@@ -123,7 +114,7 @@ export default function ChatPage() {
     if (!input.trim() || isLoading) return;
 
     const userMessage: Message = {
-      id: Date.now().valueOf(),
+      id: Date.now(),
       role: 'user',
       content: input,
     }
@@ -133,45 +124,40 @@ export default function ChatPage() {
     setInput('')
     setIsLoading(true)
 
-    const assistantMessageId = Date.now().valueOf()
-    // // 빈 어시스턴트 메시지 추가
-    // setMessages((prev) => [
-    //   ...prev,
-    //   { id: assistantMessageId, role: 'assistant', content: '' },
-    // ]);
+    try {
+      const response = await sendChatRequest(newMessages, chatId)
 
-    const response = await sendChatRequest(newMessages, chatId)
-    setIsLoading(false)
+      if (response && response.answer) {
+        const assistantMessage: Message = {
+          id: Date.now(),
+          role: 'assistant',
+          content: response.answer,
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
 
-    if (response && !response.error) {
-      // 응답에서 새로운 chat_id와 답변을 추출
-      const newChatId = response.chat_id;
-      const assistantResponse = response.answer;
-      
-      // 상태 업데이트
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === assistantResponse.chat_id
-            ? { ...msg, content: assistantResponse }
-            : msg
-        )
-      );
-
-      // 만약 새로운 chat_id를 받았다면 (첫 메시지였다면)
-      if (newChatId && !chatId) {
-        setChatId(newChatId);
-        // URL을 업데이트합니다.
-        router.push(`/chat/${newChatId}`, { scroll: false });
+        if (response.chat_id && !chatId) {
+          const newChatId = response.chat_id;
+          setChatId(newChatId);
+          router.push(`/chat/${newChatId}`, { scroll: false });
+        }
+      } else {
+        const errorMessage: Message = {
+          id: Date.now(),
+          role: 'assistant',
+          content: response.error || '오류가 발생했습니다.',
+        };
+        setMessages((prev) => [...prev, errorMessage]);
       }
-    } else {
-      // 에러 처리
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === assistantMessageId
-            ? { ...msg, content: response.error || '오류가 발생했습니다.' }
-            : msg
-        )
-      );
+    } catch (error) {
+        console.error("Error in handleSubmit: ", error);
+        const errorMessage: Message = {
+            id: Date.now(),
+            role: 'assistant',
+            content: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+        setIsLoading(false)
     }
   }
 
@@ -712,3 +698,32 @@ export default function ChatPage() {
     </div>
   )
 }
+
+// 현재 오류:
+// Console Error
+
+// Each child in a list should have a unique "key" prop.
+
+// Check the render method of `div`. It was passed a child from ChatPage. See https://react.dev/link/warning-keys for more information.
+
+// app/chat/[[...chat_id]]/page.tsx (576:17) @ ChatPage/<.children<.children<.children<.children<
+
+//   574 |             <div className="max-w-3xl mx-auto space-y-4">
+//   575 |               {messages.map((message) => (
+// > 576 |                 <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+//       |                 ^
+//   577 |                   <div
+//   578 |                     className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}
+//   579 |                   >
+
+// Call Stack 23
+// Show 20 ignore-listed frame(s)
+// div
+// unknown (0:0)
+// ChatPage/<.children<.children<.children<.children<
+// app/chat/[[...chat_id]]/page.tsx (576:17)
+// ChatPage
+// app/chat/[[...chat_id]]/page.tsx (575:25)
+
+
+// TODO: /chat/{chat_id}에서 대화 시 새로운 대화로 간주하고 새 chat_id를 만드는게 아니라 form data의 body에 chat_id 포함하도록 해 기존 대화를 이어나가는 것으로 인식하도록
