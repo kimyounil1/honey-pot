@@ -336,8 +336,8 @@ export default function ChatPage() {
 
   const resetToHome = () => {
     // setCurrentChatId(null);
-    setMessages([]);
-    setShowAllQuickQuestions(false);
+    router.push('/chat')
+    return;
   }
 
   return (
