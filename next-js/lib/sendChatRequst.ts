@@ -1,11 +1,14 @@
-export async function sendChatRequest(newMessages: any[], currentChatId: number | undefined){
+// export async function sendChatRequest(newMessages: any[], currentChatId: number | undefined){
+export async function sendChatRequest(message: any[], chatId?: number){
+  const url = chatId ? `/api/chat/${chatId}` : `/api/chat`
     try {
-      const response = await fetch('/api/chat', {
+      // const response = await fetch('/api/chat', {
+        const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: newMessages.map(({id, ...rest }) => rest),
-          chat_id: currentChatId,
+          messages: message.map(({id, ...rest }) => rest),
+          chat_id: chatId,
           attachment_ids: [],
         }),
       })

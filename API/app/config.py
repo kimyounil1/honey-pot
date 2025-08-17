@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     OPENSEARCH_TIMEOUT: int = 40
 
     #왓슨 Setting값
-    WATSONX_API_KEY: str
-    WATSONX_URL: str
-    WATSONX_PROJECT_ID: str
-    WATSONX_MODEL_ID: str
+    WATSONX_API_KEY: str = ""
+    WATSONX_URL: str = ""
+    WATSONX_PROJECT_ID: str = ""
+    WATSONX_MODEL_ID: str = ""
 
 settings = Settings()

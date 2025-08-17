@@ -7,7 +7,7 @@ export async function POST(req: Request) {
     const cookieStore = await cookies();
     const token = cookieStore.get('access_token')?.value;
 
-    const { messages, attachment_ids, chatId } = await req.json();
+    const { messages, attachment_ids } = await req.json();
     const lastUserMessage = messages[messages.length - 1];
 
     if (!lastUserMessage || lastUserMessage.role !== 'user') {
@@ -18,9 +18,6 @@ export async function POST(req: Request) {
     formData.append('text', lastUserMessage.content);
     if (attachment_ids) {
       formData.append('attachment_ids', JSON.stringify(attachment_ids));
-    }
-    if (chatId) {
-      formData.append('chat_id', String(chatId));
     }
 
     const fastApiResponse = await fetch('http://API:8000/chat/ask', {

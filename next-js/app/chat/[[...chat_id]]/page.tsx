@@ -12,6 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, Trash2, MoreVertical, Droplet, History, LogOut, ChevronDown, ChevronRight, ChevronUp } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { sendChatRequest } from "@/lib/sendChatRequst"
+import { v4 as uuidv4 } from 'uuid'
 import Link from "next/link"
 import NewChatModal from "./new-chat-modal"
 import InsuranceCompanyModal from "./insurance-company-modal"
@@ -30,7 +31,7 @@ interface ChatSession {
 }
 
 interface Message {
-  id: number
+  id: string
   role: 'user' | 'assistant';
   content: string;
 }
@@ -88,7 +89,11 @@ export default function ChatPage() {
         return;
       }
       const historyData: Message[] = await response.json()
-      setMessages(historyData)
+      const messagesWithClientIds = historyData.map((message: any) => ({
+        ...message,
+        id: uuidv4()
+      }));
+      setMessages(messagesWithClientIds)
     } catch(error){
       console.error("Failed to fetch chat history: ", error)
       router.push("/chat")
@@ -114,7 +119,7 @@ export default function ChatPage() {
     if (!input.trim() || isLoading) return;
 
     const userMessage: Message = {
-      id: Date.now(),
+      id: uuidv4(),
       role: 'user',
       content: input,
     }
@@ -129,7 +134,7 @@ export default function ChatPage() {
 
       if (response && response.answer) {
         const assistantMessage: Message = {
-          id: Date.now(),
+          id: uuidv4(),
           role: 'assistant',
           content: response.answer,
         };
@@ -140,9 +145,11 @@ export default function ChatPage() {
           setChatId(newChatId);
           router.push(`/chat/${newChatId}`, { scroll: false });
         }
+      } else if(response.chat_id && chatId){
+        
       } else {
         const errorMessage: Message = {
-          id: Date.now(),
+          id: uuidv4(),
           role: 'assistant',
           content: response.error || '오류가 발생했습니다.',
         };
@@ -151,7 +158,7 @@ export default function ChatPage() {
     } catch (error) {
         console.error("Error in handleSubmit: ", error);
         const errorMessage: Message = {
-            id: Date.now(),
+            id: uuidv4(),
             role: 'assistant',
             content: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
         };
@@ -181,7 +188,7 @@ export default function ChatPage() {
     if (initialMessage) {
       setMessages([
         {
-          id: 99999, // ID is present, which is good
+          id: uuidv4(), // ID is present, which is good
           role: "user",
           content: initialMessage,
         }
@@ -339,7 +346,7 @@ export default function ChatPage() {
     router.push('/chat')
     return;
   }
-
+  // console.log('Current Messages State:', JSON.stringify(messages, null, 2));
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
@@ -370,19 +377,19 @@ export default function ChatPage() {
         </div>
 
         <nav className="px-4 space-y-2">
-          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('나의 보험')}>
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('나의 보험')}> 
             <User className="mr-3 h-4 w-4 text-gray-800" />
             나의 보험
           </Button>
-          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('내 보험 약관 분석')}>
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('내 보험 약관 분석')}> 
             <FileText className="mr-3 h-4 w-4 text-blue-600" />
             내 보험 약관 분석
           </Button>
-          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('환급금 찾기')}>
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('환급금 찾기')}> 
             <TrendingUp className="mr-3 h-4 w-4 text-green-600" />
             환급금 찾기
           </Button>
-          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('보험 추천')}>
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('보험 추천')}> 
             <Shield className="mr-3 h-4 w-4 text-purple-600" />
             보험 추천
           </Button>
@@ -415,7 +422,7 @@ export default function ChatPage() {
                 {chatSessions.map((chat) => (
                   <div
                     key={chat.id}
-                    className={`p-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-50 ${
+                    className={`p-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-50 ${ 
                       currentChatId === chat.id ? "bg-yellow-50 border border-yellow-200" : "bg-white border"
                     }`}
                     onClick={() => handleSelectChat(chat.id)}
@@ -504,7 +511,7 @@ export default function ChatPage() {
                   <div className="grid grid-cols-2 gap-3 w-full">
                     {displayedQuestions.map((question, index) => (
                       <Button
-                        key={index}
+                        key={question}
                         variant="outline"
                         className="text-left h-auto p-4 hover:bg-yellow-50 hover:border-yellow-300 bg-transparent justify-center text-sm"
                         onClick={() => handleFAQSelect(question)}
@@ -585,7 +592,7 @@ export default function ChatPage() {
                       )}
                     </Avatar>
                     <div
-                      className={`rounded-lg px-4 py-2 ${
+                      className={`rounded-lg px-4 py-2 ${ 
                         message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"
                       }`}
                     >
@@ -708,13 +715,19 @@ export default function ChatPage() {
 
 // app/chat/[[...chat_id]]/page.tsx (576:17) @ ChatPage/<.children<.children<.children<.children<
 
-//   574 |             <div className="max-w-3xl mx-auto space-y-4">
-//   575 |               {messages.map((message) => (
-// > 576 |                 <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-//       |                 ^
-//   577 |                   <div
-//   578 |                     className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}
-//   579 |                   >
+//   574 |
+//       <div className="max-w-3xl mx-auto space-y-4">
+//   575 |
+//       {messages.map((message, index) => (
+// > 576 |
+//       <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+//       |                 ^ 
+//   577 |
+//       <div
+//   578 |
+//       className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}
+//   579 |
+//       >
 
 // Call Stack 23
 // Show 20 ignore-listed frame(s)
