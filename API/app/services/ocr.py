@@ -18,13 +18,13 @@ VISION_MODEL = os.getenv("OCR_VISION_MODEL", "gpt-4o-mini")
 async def ocr_file(file: UploadFile) -> str:
     data, mime, filename = await _read_upload(file)
     if _is_pdf(mime, filename, data):
-        return _extract_pdf_text_or_vision(data, max_pages=5, dpi=300).strip()
+        return _extract_pdf_text_or_vision(data, max_pages=300, dpi=300).strip()
     return _vision_image_to_text(data, mime).strip()
 
 async def extract_diagnosis_fields(file: UploadFile) -> Dict[str, Any]:
     data, mime, filename = await _read_upload(file)
     if _is_pdf(mime, filename, data):
-        raw_text = _extract_pdf_text_or_vision(data, max_pages=5, dpi=300)
+        raw_text = _extract_pdf_text_or_vision(data, max_pages=300, dpi=300)
     else:
         raw_text = _vision_image_to_text(data, mime)
     raw_text = (raw_text or "").strip()

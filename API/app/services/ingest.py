@@ -56,6 +56,7 @@ async def ingest_policy(text: str, meta: Dict[str, Any]) -> int:
     region = getattr(settings, "OPENSEARCH_REGION", "us-east-1")
     index = settings.OPENSEARCH_INDEX
     pipeline = settings.OPENSEARCH_PIPELINE
+    timeout = getattr(settings, "OPENSEARCH_TIMEOUT", 40)
 
     auth = AWSV4SignerAuth(boto3.Session().get_credentials(), region, "es")
     client = OpenSearch(
@@ -73,7 +74,7 @@ async def ingest_policy(text: str, meta: Dict[str, Any]) -> int:
 
     try:
         bulk_kwargs = {"pipeline": pipeline} if pipeline else {}
-        helpers.bulk(client, actions, **bulk_kwargs)
+        helpers.bulk(client, actions, request_timeout=timeout, **bulk_kwargs)
     except Exception as exc:
         logger.exception("Policy ingest failed: %s", exc)
         raise
