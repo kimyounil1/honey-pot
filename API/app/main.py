@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, engine, AsyncSessionLocal
-from app.routers import user, policy, claim, chat, document
+from app.routers import user, policy, claim, chat, document, test
 from app.crud import userCRUD
 from app.schemas import userSchema
 from contextlib import asynccontextmanager
@@ -64,5 +64,6 @@ app.include_router(policy.router)
 app.include_router(claim.router)
 app.include_router(chat.router)
 app.include_router(document.router)
+app.include_router(test.router)
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

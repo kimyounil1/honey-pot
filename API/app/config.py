@@ -17,7 +17,11 @@ class Settings(BaseSettings):
     OPENSEARCH_MAX_CHARS: int # Titan v2 ~8k tokens ≈50k chars per chunk
     OPENSEARCH_REGION: str
     OPENSEARCH_TIMEOUT: int = 40
-    # By removing the inner Config class and os.getenv, we rely solely on environment
-    # variables, which is the standard practice for Docker.
+
+    #왓슨 Setting값
+    WATSONX_API_KEY: str
+    WATSONX_URL: str
+    WATSONX_PROJECT_ID: str
+    WATSONX_MODEL_ID: str
 
 settings = Settings()

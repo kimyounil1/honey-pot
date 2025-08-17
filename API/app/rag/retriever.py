@@ -1,22 +1,218 @@
 # app/rag/retriever.py
 from __future__ import annotations
-from typing import Sequence, List, Dict, Any
+from typing import Sequence, List, Dict, Any, Optional, Tuple
+import os
+import logging
+import boto3
+
+from opensearchpy import OpenSearch, RequestsHttpConnection, AWSV4SignerAuth
 from app.services.common import Mode
+from app.config import settings
 
-"""
-RAG 검색/컨텍스트 생성 모듈
-- stage.rag_retrieve()에서 호출
-- 현재는 안전한 스텁 동작(실서비스 연결 전에도 오류 없이 동작)
-- 실제 연결 시:
-  1) attachment_ids → 스토리지에서 파일 로드 → OCR → 텍스트 정리
-  2) (옵션) 보험사/상품/버전/ICD 메타 기반 벡터검색 → 스니펫 압축
-  3) 아래 포맷으로 문자열 블록 반환
+# watsonx.ai (pip install ibm-watsonx-ai)
+try:
+    from ibm_watsonx_ai import Credentials, APIClient
+    from ibm_watsonx_ai.foundation_models import ModelInference
+except Exception:
+    Credentials = None
+    APIClient = None
+    ModelInference = None
 
-[RAG]
-- (제목) 핵심문장1. (p.12/제3장-5조)
-- (제목) 핵심문장2. (p.13/제3장-6조)
-🔎 출처: 현대해상 ○○실손(2024-01-01)
-"""
+logger = logging.getLogger(__name__)
+
+# ============================= OpenSearch =============================
+
+def _os_client() -> OpenSearch:
+    region = getattr(settings, "OPENSEARCH_REGION", os.getenv("OPENSEARCH_REGION", "us-east-1"))
+    auth = AWSV4SignerAuth(boto3.Session().get_credentials(), region, "es")
+    host = getattr(settings, "OPENSEARCH_HOST", os.getenv("OPENSEARCH_HOST"))
+    port = int(getattr(settings, "OPENSEARCH_PORT", os.getenv("OPENSEARCH_PORT", "443")))
+    return OpenSearch(
+        hosts=[{"host": host, "port": port}],
+        http_auth=auth,
+        use_ssl=True,
+        verify_certs=True,
+        connection_class=RequestsHttpConnection,
+    )
+
+def _trim(s: str, n: int = 120) -> str:
+    s = (s or "").replace("\n", " ").strip()
+    return (s[:n] + "…") if len(s) > n else s
+
+def _search_snippets(query: str, k: int = 6) -> List[Dict[str, Any]]:
+    index = getattr(settings, "OPENSEARCH_INDEX", None)
+
+    body = {
+        "size": max(1, min(k, 20)),
+        "query": {
+            "multi_match": {
+                "query": query,
+                "fields": ["section_title^2", "content"],
+                "type": "best_fields",
+                "tie_breaker": 0.2
+            }
+        },
+        "_source": True,
+    }
+    resp = _os_client().search(index=index, body=body)
+
+    # total 파싱(버전에 따라 dict/int 혼재)
+    raw_total = (resp.get("hits", {}).get("total", {}) or {})
+    if isinstance(raw_total, dict):
+        total = int(raw_total.get("value", 0))
+    else:
+        total = int(raw_total or 0)
+
+    hits = resp.get("hits", {}).get("hits", []) or []
+
+    if not hits:
+        # ✅ 검색 0건 로그
+        logger.info(
+            "[RAG][OS_EMPTY] index=%s total=%d k=%d query=%s",
+            index, total, k, _trim(query)
+        )
+        return []
+
+    out = []
+    for h in hits:
+        s = h.get("_source", {}) or {}
+        out.append({
+            "score": h.get("_score", 0.0),
+            "section_title": s.get("section_title", "") or "",
+            "content": s.get("content", "") or "",
+            "filename": s.get("filename", ""),
+            "insurer": s.get("insurer", ""),
+            "version": s.get("version", ""),
+            "policy_id": s.get("policy_id", "") or s.get("policy", ""),
+            "effective_date": s.get("effective_date", ""),
+        })
+
+    # 검색 결과 요약 로그(상위 1개만 제목 찍기)
+    logger.debug(
+        "[RAG][OS_OK] index=%s total=%d k=%d top_title=%s query=%s",
+        index, total, k, _trim(out[0].get("section_title")), _trim(query)
+    )
+    return out
+
+# ============================= Token Utils =============================
+
+def _rough_tokens(text: str) -> int:
+    """보수 근사(한글 포함): ~1토큰=3문자."""
+    if not text:
+        return 0
+    return max(1, len(text) // 3)
+
+def _wx_model() -> Optional[ModelInference]:
+    if ModelInference is None:
+        logger.warning("ibm-watsonx-ai SDK not installed.")
+        return None
+
+    creds = Credentials(api_key=settings.WATSONX_API_KEY, url=settings.WATSONX_URL)
+    _ = APIClient(creds)  # 내부 토크나이저 호출에 필요
+
+    return ModelInference(
+        model_id=settings.WATSONX_MODEL_ID,
+        credentials=creds,
+        project_id=settings.WATSONX_PROJECT_ID,
+    )
+
+def _wx_token_count(model: Optional[ModelInference], text: str) -> int:
+    if not model:
+        return _rough_tokens(text)
+    try:
+        t = model.tokenize(prompt=text, return_tokens=True)
+        return len(t.get("result", []))
+    except Exception:
+        return _rough_tokens(text)
+
+def _fit_snippets_to_limit(
+    snippets: List[Dict[str, Any]],
+    user_query: str,
+    token_limit: int = 400_0,
+    system_overhead_tokens: int = 600,
+    per_snippet_header_tokens: int = 12,
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """
+    watsonx 호출 전, RAG 컨텍스트(원문 스니펫) 블록을 10,000 토큰 이내로 구성.
+    watsonx 토크나이저 없이 보수 근사 사용.
+    """
+    header = "[RAG CONTEXT]\n"
+    used = _rough_tokens(header) + _rough_tokens(user_query) + system_overhead_tokens
+    chosen: List[Dict[str, Any]] = []
+    lines: List[str] = [header]
+
+    for s in snippets:
+        title = s.get("section_title") or "snippet"
+        body = (s.get("content") or "").strip()
+        if not body:
+            continue
+        block = f"- ({title}) {body}"
+        need = per_snippet_header_tokens + _rough_tokens(block)
+
+        if used + need > token_limit:
+            remain = token_limit - used - per_snippet_header_tokens
+            if remain <= 0:
+                break
+            approx_chars = max(0, remain * 3)
+            block = f"- ({title}) {body[:approx_chars]}…"
+            need = per_snippet_header_tokens + _rough_tokens(block)
+            if used + need > token_limit:
+                break
+
+        lines.append(block)
+        used += need
+        chosen.append(s)
+
+    # 간단 출처
+    if chosen:
+        labels = []
+        for s in chosen:
+            parts = []
+            if s.get("insurer"): parts.append(str(s["insurer"]))
+            if s.get("version"): parts.append(str(s["version"]))
+            if s.get("filename"): parts.append(str(s["filename"]))
+            if s.get("policy_id"): parts.append(f"#{s['policy_id']}")
+            lab = " ".join([p for p in parts if p])
+            if lab and lab not in labels:
+                labels.append(lab)
+        if labels:
+            lines.append("🔎 출처: " + " / ".join(labels))
+
+    return "\n".join(lines), chosen
+
+# ============================= watsonx Generator =============================
+
+def _rag_prompt(user_query: str, context_block: str) -> str:
+    return (
+        "당신은 제공된 컨텍스트만 근거로 답하는 보험 도메인 RAG 어시스턴트입니다.\n"
+        "규칙:\n"
+        "1) 컨텍스트 밖 지식 사용 금지.\n"
+        "2) 금액/한도/면책 등 수치는 인용 근거와 함께 제시.\n"
+        "3) 컨텍스트가 부족하면 그 사실을 명시.\n\n"
+        f"{context_block}\n\n"
+        f"[사용자 질문]\n{user_query}\n\n"
+        "출력 형식: 요약 → 근거(글머리표) → 유의사항 → 출처"
+    )
+
+def _wx_generate_answer(prompt: str) -> str:
+    model = _wx_model()
+    if model is None:
+        return ""
+    try:
+        resp = model.generate_text(
+            prompt=prompt,
+            max_new_tokens=800,
+            temperature=0.2,
+            decoding_method="greedy",
+            repetition_penalty=1.05,
+            stop_sequences=[],
+        )
+        return (resp or "").strip()
+    except Exception as e:
+        logger.exception("watsonx.ai generation failed: %s", e)
+        return ""
+
+# ============================= Public API =============================
 
 async def retrieve(
     mode: Mode,
@@ -26,38 +222,29 @@ async def retrieve(
     k: int = 6,
 ) -> str:
     """
-    1) user_id 소유의 attachment_ids 텍스트 병합
-    2) (옵션) 모드/쿼리/메타 기반 벡터 검색 스니펫 추가
-    -> 합친 컨텍스트를 문자열로 리턴
+    Auto-RAG 컨텍스트 생성기:
+    - OpenSearch에서 스니펫 검색 → 10,000 토큰 한도로 컨텍스트 구성
+    - watsonx가 해당 컨텍스트만으로 초안 답변 생성
+    - 생성된 초안 답변을 '[RAG AUTO ANSWER]' 블록으로 반환
+    - watsonx 미설치/오류 시, 컨텍스트 블록만 반환(파이프라인 유지)
     """
-    # --- TODO: 실제 구현부 (스토리지/VectorDB 연결) ---
-    # 예시 로직 스켈레톤:
-    # texts: List[str] = []
-    # for aid in (attachment_ids or []):
-    #     file = await storage.get_file(user_id=user_id, attachment_id=aid)
-    #     txt  = await ocr.ocr_file(file)  # 또는 서버 내 OCR 파이프라인
-    #     if txt:
-    #         texts.append(f"[첨부:{aid}]\n{txt[:4000]}")
-    # snippets = await vectordb.search(query=query, k=k, meta={...})
-    # rag_lines = [f"- {s['title']} {s['summary']} ({s['page_ref']}/{s['clause_id']})" for s in snippets]
-    # src_line  = _format_sources(snippets)
-    # block = ""
-    # if rag_lines:
-    #     block += "[RAG]\n" + "\n".join(rag_lines)
-    #     if src_line:
-    #         block += f"\n🔎 출처: {src_line}"
-    # if texts:
-    #     block = (block + "\n\n" if block else "") + "\n\n".join(texts)
-    # return block
+    try:
+        snippets = _search_snippets(query=query, k=k)
+        context_block, _ = _fit_snippets_to_limit(
+            snippets=snippets,
+            user_query=query,
+            token_limit=10_000,
+        )
+        prompt = _rag_prompt(user_query=query, context_block=context_block)
+        answer = _wx_generate_answer(prompt)
 
-    # 안전한 기본값(연결 전): 빈 문자열 반환
-    return ""
+        if (answer or "").strip():
+            # 외부(OpenAI) 폴리싱이 컨텍스트로 사용할 수 있게 명확한 헤더 부여
+            return "[RAG AUTO ANSWER]\n" + answer
 
-# --- (선택) 헬퍼 함수들: 실제 연결 시 활성화 ---
-# def _format_sources(snippets: List[Dict[str, Any]]) -> str:
-#     labels = []
-#     for s in snippets:
-#         lab = s.get("source_label")
-#         if lab and lab not in labels:
-#             labels.append(lab)
-#     return " / ".join(labels)
+        # watsonx 실패 시: 원문 컨텍스트라도 반환
+        return context_block
+
+    except Exception as e:
+        logger.exception("retrieve failed: %s", e)
+        return ""
