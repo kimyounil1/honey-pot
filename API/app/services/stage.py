@@ -1,82 +1,117 @@
-# app/services/stage.py
-from typing import Sequence, TypedDict, List, Dict, Optional
-from app.services.common import Mode
-from app.services import startend, fallback
-from app.rag.retriever import retrieve
+import logging
+from typing import Any, Dict, List, Optional, Tuple
 
-class LLMRequest(TypedDict, total=False):
-    mode: Mode
-    messages: List[Dict[str, str]]
-    attachments_used: List[str]
-    static_answer: Dict[str, str]
+from fastapi import UploadFile
 
-# --- DB 우선 조회 훅 (실제 연결 시 내부 구현만 교체) ---
-async def _policy_db_lookup(mode: Mode, entities: Dict[str, str], user_text: str) -> str:
+from app.services import fallback
+from app.services.startend import Mode, classify_with_llm, build_messages
+from app.services.common import decide_use_retrieval
+from app.rag.retriever import retrieve, policy_db_lookup as _policy_db_lookup
+from app.services.ocr import ocr_file
+from app.services.ingest import ingest_policy
+from app.schemas import userSchema
+
+logger = logging.getLogger(__name__)
+
+
+async def _classify(text: str) -> Tuple[Mode, Dict[str, Any]]:
     """
-    약관전문/사내DB에서 정합 블록을 만들어 반환. 없으면 "".
-    포맷 예:
-    [DB]
-    보험사: {insurer} / 상품: {product}({version})
-    - 보장대상: ...
-    - 한도/공제: ...
-    - 면책/제외: ...
-    - 청구요건: ...
-    🔎 출처: {clause_id} / {page_ref}
+    LLM 분류 결과에서 (Mode, entities) 반환
     """
-    # TODO: 실제 DB 연동
-    return ""
+    result = await classify_with_llm(text)
+    mode: Mode = result["mode"]
+    entities: Dict[str, Any] = result.get("entities", {})
+    return mode, entities
+
 
 async def prepare_llm_request(
-    user_id: int,
+    *,
+    user_id: int | str,
     text: str,
-    # first_message: bool = False,
-    attachment_ids: Sequence[str] | None = None,
-) -> LLMRequest:
-    print(f"[STAGE] prepare: user_id={user_id}, attachments={list(attachment_ids or [])}")
+    attachment_ids: Optional[List[str]] = None,
+    file: UploadFile | None = None,
+    current_user: userSchema.UserRead | None = None,
+) -> Dict[str, Any]:
+    """
+    파이프라인(최종):
+      1) 분류
+      2) FALLBACK이면 정적 응답 즉시 반환
+      3) TERMS/REFUND + 파일 있으면 OCR → 인덱싱(예외는 로그만)
+      4) DB-우선 조회
+      5) (필요 시) RAG 보조 — GENERAL 금지, RECOMMEND 요청 시 허용
+      6) 메시지 빌드
+    """
+    att_ids = list(attachment_ids or [])
 
-    # 1) LLM 분류 + 서버 정책(스위치) 반영
-    decision = startend.classify_with_llm(text, list(attachment_ids or []))
-    mode = decision.flow
-    use_retrieval: bool = bool(getattr(decision, "use_retrieval", False))
-    entities: Dict[str, str] = getattr(decision, "entities", {}) or {}
+    # 1) 분류
+    mode, entities = await _classify(text)
+    use_retrieval = decide_use_retrieval(mode)
+    logger.info("[STAGE] classify -> mode=%s | text='%s'", getattr(mode, "name", str(mode)), text[:80])
 
     # 2) FALLBACK은 정적 응답
     if mode == Mode.FALLBACK:
         static = fallback.static_answer(text)
-        print(f"[STAGE] ready: mode=FALLBACK, ctx_len=0, messages_len=0 (static)")
+        logger.info("[STAGE] ready: mode=FALLBACK, ctx_len=0, messages_len=0 (static)")
         return {
             "mode": mode,
             "messages": [],
-            "attachments_used": list(attachment_ids or []),
+            "attachments_used": att_ids,
             "static_answer": static,
         }
 
-    # 3) DB-우선 조회
+    # 3) OCR 인제스트: TERMS/REFUND + 파일 있을 때만
+    if file and mode in (Mode.TERMS, Mode.REFUND):
+        try:
+            ocr_text = await ocr_file(file)
+            logger.info("[STAGE] OCR extracted %s chars", len(ocr_text))
+
+            meta = {
+                "policy_id": f"{(current_user.user_id if current_user else user_id)}-{file.filename}",
+                "uploader_id": current_user.user_id if current_user else user_id,
+                "filename": file.filename,
+            }
+            try:
+                indexed = await ingest_policy(ocr_text, meta)
+                logger.info("[STAGE] OpenSearch indexed %s docs policy_id=%s", indexed, meta["policy_id"])
+            except Exception as ingest_err:
+                logger.warning("[STAGE] Ingest failed: %s", ingest_err)
+        except Exception as e:
+            logger.warning("[STAGE] OCR failed: %s", e)
+
+    # 4) DB-우선 조회
     db_block = await _policy_db_lookup(mode=mode, entities=entities, user_text=text)
     db_hit = bool((db_block or "").strip())
 
-    # 4) (필요 시) RAG 보조 — GENERAL은 금지, RECOMMEND는 요청 시 허용
+    # 5) (필요 시) RAG 보조 — GENERAL 금지, RECOMMEND 요청 시 허용
     rag_block = ""
-    rag_hit = False
     if use_retrieval and not db_hit and mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND):
         rag_block = await retrieve(
-            mode, user_id=user_id, query=text,
-            attachment_ids=list(attachment_ids or []), k=6
+            mode=mode,
+            user_id=user_id,
+            query=text,
+            attachment_ids=att_ids,
         )
-        rag_hit = bool((rag_block or "").strip())
 
-    # 5) 컨텍스트 합성
-    context = "\n\n".join([blk for blk in [db_block, rag_block] if (blk or "").strip()])
-
-    # 6) 모드별 템플릿 메시지
-    messages = startend.build_messages(
-        # mode=mode, user_text=text, context=context, first_message=first_message
-        mode=mode, user_text=text, context=context
+    # 6) 메시지 빌드
+    messages = build_messages(
+        mode=mode,
+        text=text,
+        entities=entities,
+        db_block=db_block,
+        rag_block=rag_block,
     )
 
-    print(f"[STAGE] ready: mode={mode}, db_hit={db_hit}, rag_hit={rag_hit}, ctx_len={len(context)}, messages_len={len(messages)})")
+    ctx_len = len(db_block) + len(rag_block)
+    logger.info(
+        "[STAGE] ready: mode=%s, ctx_len=%d, messages_len=%d",
+        getattr(mode, "name", str(mode)),
+        ctx_len,
+        len(messages),
+    )
+
     return {
         "mode": mode,
         "messages": messages,
-        "attachments_used": list(attachment_ids or []),
+        "attachments_used": att_ids,
+        "static_answer": "",  # 폴백 아님
     }

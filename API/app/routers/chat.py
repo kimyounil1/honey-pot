@@ -1,155 +1,166 @@
-# app/routers/chat.py
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+import logging
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Request, UploadFile, File, Depends, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from sqlalchemy.ext.asyncio import AsyncSession
 
-import json
-from app.services.common import Mode
-from app.services.ocr import ocr_file
-from app.services.stage import prepare_llm_request
-from app.services.llm_gateway import call_llm
-from app.services.ingest import ingest_policy
-from app.schemas import userSchema, chatSchema
-# from app.schemas.chatSchema import NewChat, Message
-
-from app.crud import chatCRUD
-from app.models import userModel
 from app.auth import deps
-from app.database import get_db
+from app.schemas import userSchema
+from app.services import llm_gateway
+from app.services import stage
 
+from app.database import get_db
+from app.crud import chatCRUD
+from app.schemas import chatSchema
+
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+
+# --- 요청 바디(JSON/FORM 공통) ---
 class AskBody(BaseModel):
-    # user_id: int
-    role: str = "user"
     text: str
-    attachment_ids: Optional[List[str]] = None  # 업로드된 file_id 배열
-    chat_id: Optional[int] = None
-    file: Optional[UploadFile] = None
+    first_message: Optional[bool] = False
+    attachment_ids: Optional[List[str]] = None
+    chat_id: Optional[int] = None  # 새 채팅이면 None
 
-    class Config:
-        arbitrary_types_allowed = True
 
-    @classmethod
-    def as_form(
-            cls,
-            text: str = Form(...),
-            attachment_ids: Optional[str] = Form(None),
-            chat_id: Optional[str] = Form(None),
-            file: Optional[UploadFile] = File(None)
-    ) -> "AskBody":
-        ids = json.loads(attachment_ids) if attachment_ids else None
+def _coerce_bool(v: Any) -> bool:
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return False
+    return str(v).strip().lower() in ("1", "true", "on", "yes")
 
-        parsed_chat_id: Optional[int] = None
-        if chat_id:
-            try:
-                parsed_chat_id = int(chat_id)
-            except ValueError:
-                raise HTTPException(status_code=422, detail="Invalid chat_id")
-        valid_file = file if file and file.filename else None
-
-        return cls(text=text, attachment_ids=ids, chat_id=parsed_chat_id, file=valid_file)
-
-@router.get("/{chat_id}/messages", response_model=List[chatSchema.Message])
-async def read_chat_messages(
-    chat_id: int, 
-    db: AsyncSession = Depends(get_db), 
-    current_user: userModel.User = Depends(deps.get_current_user)
-):
-    messages = await chatCRUD.get_messages(db=db, chat_id=chat_id)
-    if not messages:
-        raise HTTPException(status_code=404, detail="Chat not found or no messages")
-    return messages
 
 @router.post("/ask")
 async def ask(
-    form_data: AskBody = Depends(AskBody.as_form),
+    request: Request,
+    file: UploadFile | None = File(None),  # 파일은 multipart/form-data로 올 때만 존재
+    db: AsyncSession = Depends(get_db),
     current_user: userSchema.UserRead = Depends(deps.get_current_user),
-    db: AsyncSession = Depends(get_db)
 ):
-    body = form_data
-    file = form_data.file
+    """
+    - JSON이면 request.json()에서 파싱, multipart/form이면 form 파싱 + file 주입
+    - stage.prepare_llm_request()가 FALLBACK/OCR/DB/RAG/메시지 빌드를 전부 준비
+    - 여기서는 저장 + (폴백이면 즉시 반환) or (LLM 호출 후 저장) 만 담당
+    """
+    try:
+        # --- 1) 입력 파싱 ---
+        content_type = (request.headers.get("content-type") or "").lower()
+        if content_type.startswith("application/json"):
+            payload = await request.json()
+            body = AskBody(**payload)
+        else:
+            # multipart/form-data 또는 x-www-form-urlencoded
+            form = await request.form()
+            text = (form.get("text") or "").strip()
+            first_message = _coerce_bool(form.get("first_message"))
+            raw_ids = form.get("attachment_ids")
+            if isinstance(raw_ids, list):
+                attachment_ids = raw_ids
+            elif isinstance(raw_ids, str) and raw_ids.strip():
+                attachment_ids = [s.strip() for s in raw_ids.split(",")]
+            else:
+                attachment_ids = None
+            chat_id = form.get("chat_id")
+            if chat_id is not None:
+                try:
+                    chat_id = int(chat_id)
+                except Exception:
+                    chat_id = None
+            body = AskBody(
+                text=text,
+                first_message=first_message,
+                attachment_ids=attachment_ids,
+                chat_id=chat_id,
+            )
 
-    # 2단계: messages 준비 (분류→가드룰→DB우선→조건부RAG)
-    llm_req = await prepare_llm_request(
-        user_id=current_user.user_id,
-        text=body.text,
-        # first_message=body.first_message,
-        attachment_ids=body.attachment_ids
-    )
+        # --- 2) Stage에서 준비(폴백→OCR→DB→RAG→메시지) ---
+        prep = await stage.prepare_llm_request(
+            user_id=current_user.user_id,
+            text=body.text,
+            attachment_ids=body.attachment_ids or [],
+            file=file,                    # ⬅ OCR은 stage에서 처리
+            current_user=current_user,
+        )
 
-    # 폴백이면 LLM 호출하지 않고 정적 응답 바로 반환
-    if "static_answer" in llm_req and llm_req["static_answer"]:
-        print(f"[ROUTER] LLM skipped (FALLBACK). mode={llm_req['mode']}, used_attachments={llm_req['attachments_used']}")
+        mode = prep["mode"]
+        mode_str = getattr(mode, "name", str(mode))   # Enum 대응
+        attachments_used = prep.get("attachments_used", [])
+        static_answer = prep.get("static_answer") or ""
+
+        # --- 3) chat_id 확정(없으면 생성) ---
+        if not body.chat_id:
+            new_chat = await chatCRUD.create_chat(
+                db,
+                chatSchema.NewChat(
+                    user_id=current_user.user_id,
+                    title=body.text[:30],
+                    type=mode_str,  # Enum -> str로 저장
+                ),
+            )
+            chat_id = new_chat.id
+        else:
+            chat_id = body.chat_id
+
+        # --- 4) 사용자 메시지 저장(항상) ---
+        await chatCRUD.create_message(
+            db,
+            chatSchema.Message(
+                chat_id=chat_id,
+                role="user",
+                content=body.text,
+            ),
+        )
+
+        # --- 5) 폴백이면 정적 답 저장 후 즉시 반환 ---
+        if static_answer:
+            answer = static_answer
+            await chatCRUD.create_message(
+                db,
+                chatSchema.Message(
+                    chat_id=chat_id,
+                    role="assistant",
+                    content=answer,
+                ),
+            )
+            logger.info("[ROUTER] FALLBACK. mode=%s, used_attachments=%s", mode_str, attachments_used)
+            return {
+                "ok": True,
+                "answer": answer,
+                "mode": mode_str,
+                "used_attachments": attachments_used,
+                "chat_id": chat_id,
+            }
+
+        # --- 6) LLM 호출(폴백이 아닌 경우) ---
+        messages = prep["messages"]
+        logger.info("[ROUTER] Calling LLM. mode=%s, messages_len=%d", mode_str, len(messages))
+        answer = await llm_gateway.call_llm(messages)
+
+        # --- 7) 어시스턴트 메시지 저장 ---
+        await chatCRUD.create_message(
+            db,
+            chatSchema.Message(
+                chat_id=chat_id,
+                role="assistant",
+                content=answer,
+            ),
+        )
+
+        logger.info("[ROUTER] LLM done. mode=%s, used_attachments=%s", mode_str, attachments_used)
         return {
-            "answer": llm_req["static_answer"]["answer"],
-            "mode": llm_req["mode"],
-            "used_attachments": llm_req["attachments_used"],
+            "ok": True,
+            "answer": answer,
+            "mode": mode_str,
+            "used_attachments": attachments_used,
+            "chat_id": chat_id,
         }
 
-    # 파일 업로드가 있고, 약관/환급 모드면 OCR 인제스트(로그용)
-    if file and llm_req["mode"] in (Mode.TERMS, Mode.REFUND):
-        try:
-            ocr_text = await ocr_file(file)
-            print(f"[ROUTER] OCR extracted {len(ocr_text)} chars")
-            meta = {
-                "policy_id": f"{current_user.user_id}-{file.filename}",
-                "uploader_id": current_user.user_id,
-                "filename": file.filename,
-            }
-            try:
-                indexed = await ingest_policy(ocr_text, meta)
-                print(f"[ROUTER] OpenSearch indexed {indexed} docs policy_id={meta['policy_id']}")
-            except Exception as ingest_err:
-                print(f"[ROUTER] Ingest failed: {ingest_err}")
-
-        except Exception as e:
-            print(f"[ROUTER] OCR failed: {e}")
-
-    # 3단계: LLM 호출(최종 Answerer)
-    answer = await call_llm(llm_req["messages"])
-    mode = llm_req["mode"]
-    attachments_used = llm_req["attachments_used"]  
-
-    # 채팅의 시작일 경우 create_chat 호출
-    if not body.chat_id:
-        newChat = await chatCRUD.create_chat(
-            db,
-            chatSchema.NewChat(
-                user_id = current_user.user_id,
-                title=body.text[:30],
-                type=mode  # 팀 스키마와 일치(필요시 .lower()로 통일)
-            )
-        )
-        # 채팅의 시작일 경우 chat_id를 받아옴
-        chat_id = newChat.id
-    else:
-        chat_id = body.chat_id
-
-    await chatCRUD.create_message(
-        db,
-        chatSchema.Message(
-            chat_id = chat_id,
-            role="user",
-            content=body.text
-        )
-    )
-    await chatCRUD.create_message(
-        db,
-        chatSchema.Message(
-            chat_id = chat_id,
-            role="assistant",
-            content=answer
-        )
-    )
-
-    # 완료 로그
-    print(f"[ROUTER] LLM done. mode={mode}, used_attachments={attachments_used}")
-
-    return {
-        "answer": answer,
-        "mode": mode,
-        "used_attachments": attachments_used,
-        "chat_id": chat_id
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Server error in /chat/ask: %s", e)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
