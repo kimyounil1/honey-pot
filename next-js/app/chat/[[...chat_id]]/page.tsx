@@ -706,38 +706,3 @@ export default function ChatPage() {
     </div>
   )
 }
-
-// 현재 오류:
-// Console Error
-
-// Each child in a list should have a unique "key" prop.
-
-// Check the render method of `div`. It was passed a child from ChatPage. See https://react.dev/link/warning-keys for more information.
-
-// app/chat/[[...chat_id]]/page.tsx (576:17) @ ChatPage/<.children<.children<.children<.children<
-
-//   574 |
-//       <div className="max-w-3xl mx-auto space-y-4">
-//   575 |
-//       {messages.map((message, index) => (
-// > 576 |
-//       <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-//       |                 ^ 
-//   577 |
-//       <div
-//   578 |
-//       className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}
-//   579 |
-//       >
-
-// Call Stack 23
-// Show 20 ignore-listed frame(s)
-// div
-// unknown (0:0)
-// ChatPage/<.children<.children<.children<.children<
-// app/chat/[[...chat_id]]/page.tsx (576:17)
-// ChatPage
-// app/chat/[[...chat_id]]/page.tsx (575:25)
-
-
-// TODO: /chat/{chat_id}에서 대화 시 새로운 대화로 간주하고 새 chat_id를 만드는게 아니라 form data의 body에 chat_id 포함하도록 해 기존 대화를 이어나가는 것으로 인식하도록
