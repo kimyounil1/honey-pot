@@ -1,3 +1,4 @@
+from typing import List
 from . import BaseModel, datetime, Optional
 
 class NewChat(BaseModel):
@@ -10,7 +11,7 @@ class NewChat(BaseModel):
 class Chat(BaseModel):
     id: int
     title: str
-    type: str
+    type: List[str]
     created_at: datetime
     updated_at: datetime
 
@@ -21,6 +22,7 @@ class Message(BaseModel):
     chat_id: int
     role: str
     content: str
+    type: str = "general"
     
     class Config:
         orm_mode = True

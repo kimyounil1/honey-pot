@@ -107,13 +107,14 @@ async def ask(
                 chatSchema.NewChat(
                     user_id = current_user.user_id,
                     title=body.text[:30],
-                    type=mode  # 팀 스키마와 일치(필요시 .lower()로 통일)
+                    type=mode_str  # 팀 스키마와 일치(필요시 .lower()로 통일)
                 )
             )
             # 채팅의 시작일 경우 chat_id를 받아옴
             chat_id = newChat.id
         else:
             chat_id = body.chat_id
+            await chatCRUD.add_type_to_chat(db, chat_id, mode_str)
 
         # 2-2단계: 사용자 메세지는 항상 저장
         await chatCRUD.create_message(
@@ -121,7 +122,8 @@ async def ask(
             chatSchema.Message(
                 chat_id = chat_id,
                 role="user",
-                content=body.text
+                content=body.text,
+                type="general"
             )
         )
 
@@ -134,6 +136,7 @@ async def ask(
                     chat_id=chat_id,
                     role="assistant",
                     content=answer,
+                    type=mode_str
                 ),
             )
             logger.info("[ROUTER] FALLBACK. mode=%s, used_attachments=%s", mode_str, attachments_used)
@@ -156,7 +159,8 @@ async def ask(
             chatSchema.Message(
                 chat_id = chat_id,
                 role="assistant",
-                content=answer
+                content=answer,
+                type=mode_str
             )
         )
 

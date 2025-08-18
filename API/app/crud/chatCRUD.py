@@ -16,6 +16,7 @@ async def create_message(db: AsyncSession, message_in: chatSchema.Message) -> ch
         chat_id = message_in.chat_id,
         role = message_in.role,
         content = message_in.content,
+        type = message_in.type,
         created_at = datetime.datetime.now()
     )
     db.add(message)
@@ -28,7 +29,7 @@ async def create_chat(db: AsyncSession, chat_in: chatSchema.NewChat) -> chatMode
     chat = chatModel.Chat(
         user_id = chat_in.user_id,
         title = chat_in.title,
-        type = chat_in.type,
+        type = [chat_in.type],
         created_at = datetime.datetime.now(),
         updated_at = datetime.datetime.now()
     )
@@ -59,3 +60,12 @@ async def get_chat(db: AsyncSession, chat_id: int) -> chatModel.Chat | None:
         select(chatModel.Chat).where(chatModel.Chat.id == chat_id)
     )
     return result.scalars().first()
+
+# 특정 chat_id에 type 추가
+async def add_type_to_chat(db: AsyncSession, chat_id: int, new_type: str):
+    chat = await get_chat(db, chat_id)
+    if chat and new_type not in chat.type:
+        chat.type.append(new_type)
+        await db.commit()
+        await db.refresh(chat)
+    return chat
