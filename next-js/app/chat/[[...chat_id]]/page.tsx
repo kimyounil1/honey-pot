@@ -197,6 +197,7 @@ export default function ChatPage() {
           setChatId(newChatId);
           window.history.pushState(null, '', `/chat/${newChatId}`);
         }
+        fetchChatSessions();
       } else if (response.chat_id && chatId) {
         // Special case, do nothing
       } else {
@@ -222,17 +223,18 @@ export default function ChatPage() {
 
   const fetchChatSessions = async () => {
     try {
-      const response = await fetch('/api/chat/chats'); // Next.js API route
+      const response = await fetch('/api/chat/chats', { cache: 'no-store' }); // Next.js API route
       if (!response.ok) {
         console.error("Failed to fetch chat sessions");
         return;
       }
       const data = await response.json();
+      console.log(data)
       const formattedSessions: ChatSession[] = data.map((chat: any) => ({
         id: chat.id,
         title: chat.title,
         type: chat.type,
-        timestamp: new Date(chat.updated_at),
+        timestamp: new Date(chat.updated_at.replace(' ', 'T') + 'Z'),
       }));
       setChatSessions(formattedSessions);
     } catch (error) {
@@ -331,11 +333,11 @@ export default function ChatPage() {
 
   const getChatTypeColor = (type: string) => {
     switch (type) {
-      case "refund":
+      case "REFUND":
         return "bg-green-100 text-green-700"
-      case "analysis":
+      case "TERMS":
         return "bg-blue-100 text-blue-700"
-      case "comparison":
+      case "RECOMMEND":
         return "bg-purple-100 text-purple-700"
       default:
         return "bg-blue-100 text-blue-700"
@@ -344,12 +346,12 @@ export default function ChatPage() {
 
   const getChatTypeName = (type: string) => {
     switch (type) {
-      case "refund":
+      case "REFUND":
         return "환급금"
-      case "analysis":
+      case "TERMS":
         return "약관분석"
-      case "comparison":
-        return "비교"
+      case "RECOMMEND":
+        return "추천"
       default:
         return "일반상담"
     }
@@ -360,7 +362,6 @@ export default function ChatPage() {
   }
 
   const resetToHome = () => {
-    // setCurrentChatId(null);
     router.push('/chat')
     return;
   }
@@ -435,6 +436,7 @@ export default function ChatPage() {
             
             <h4 className="text-sm font-medium text-gray-500 mb-3">최근 채팅</h4>
             <ScrollArea className="flex-1">
+              {/* TODO: chat.type은 백엔드에서 string이 아니라 list 형식으로 저장되어있음.*/}
               <div className="space-y-2">
                 {chatSessions.map((chat) => (
                   <div
@@ -448,7 +450,15 @@ export default function ChatPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center space-x-2 mb-1">
                           <h4 className="text-sm font-medium truncate">{chat.title}</h4>
-                          <Badge className={`text-xs ${getChatTypeColor(chat.type)}`}>{getChatTypeName(chat.type)}</Badge>
+                          <div className="flex items-center space-x-1 flex-wrap gap-y-1">
+                            {chat.type && chat.type.length > 0 ? (
+                              chat.type.map((t) => (
+                                <Badge key={t} className={`text-xs ${getChatTypeColor(t)}`}>{getChatTypeName(t)}</Badge>
+                              ))
+                            ) : (
+                              <Badge className={`text-xs ${getChatTypeColor('default')}`}>{getChatTypeName('default')}</Badge>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-xs text-gray-400">{formatTimestamp(chat.timestamp)}</span>
