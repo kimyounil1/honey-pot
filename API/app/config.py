@@ -1,4 +1,6 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
+
 
 class Settings(BaseSettings):
     # Pydantic-settings will automatically load these from environment variables.
@@ -23,5 +25,7 @@ class Settings(BaseSettings):
     WATSONX_URL: str
     WATSONX_PROJECT_ID: str
     WATSONX_MODEL_ID: str
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()
