@@ -48,3 +48,10 @@ async def get_chat_list(db: AsyncSession, user_id: int):
 async def get_messages(db:AsyncSession, chat_id: int):
     result = await db.execute(select(chatModel.Message).where(chatModel.Message.chat_id == chat_id).order_by(chatModel.Message.created_at.asc()))
     return result.scalars().all()
+
+# 특정 chat_id로 채팅방 정보 불러오기
+async def get_chat(db: AsyncSession, chat_id: int) -> chatModel.Chat | None:
+    result = await db.execute(
+        select(chatModel.Chat).where(chatModel.Chat.id == chat_id)
+    )
+    return result.scalars().first()
