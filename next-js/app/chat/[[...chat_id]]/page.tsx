@@ -143,7 +143,8 @@ export default function ChatPage() {
         if (response.chat_id && !chatId) {
           const newChatId = response.chat_id;
           setChatId(newChatId);
-          router.push(`/chat/${newChatId}`, { scroll: false });
+          // router.push(`/chat/${newChatId}`, { scroll: false });
+          window.history.pushState(null, '', `/chat/${newChatId}`)
         }
       } else if(response.chat_id && chatId){
         
