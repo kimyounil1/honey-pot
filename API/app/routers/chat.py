@@ -51,19 +51,17 @@ class AskBody(BaseModel):
         return cls(text=text, attachment_ids=ids, chat_id=parsed_chat_id, file=valid_file)
 
 ###### 되도록 지우지 말아주세요 ######
-@router.get("/chats/{user_id}", response_model=List[chatSchema.Chat])
+@router.get("/chats", response_model=List[chatSchema.Chat])
 async def read_user_chats(
-    user_id: int,
     current_user: userSchema.UserRead = Depends(deps.get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # admin이거나 token에서 추출한 본인의 user_id가 요청한 user_id와 일치해야 요청 허가
-    if current_user.user_id == 1 or current_user.user_id == user_id:
-        user_chats = await chatCRUD.get_chat_list(db=db, user_id=user_id)
-    else:
-        raise HTTPException(status_code=403, detail="forbidden contents")
+    # Get user_id from the token to fetch chats for the current user
+    user_chats = await chatCRUD.get_chat_list(db=db, user_id=current_user.user_id)
+    
     if not user_chats:
-        raise HTTPException(status_code=404, detail="no chats")
+        # Return an empty list if the user has no chats, instead of a 404 error
+        return []
     return user_chats
 
 @router.get("/{chat_id}/messages", response_model=List[chatSchema.Message])

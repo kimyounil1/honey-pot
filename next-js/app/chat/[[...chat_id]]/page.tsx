@@ -23,11 +23,12 @@ import RefundFinderModal from "./refund-finder-modal"
 import RecommendationModal from "./recommendation-modal"
 
 interface ChatSession {
+  id: number;
   title: string
   type: string
-  lastMessage: string
+  lastMessage?: string
   timestamp: Date
-  messageCount: number
+  messageCount?: number
 }
 
 interface Message {
@@ -46,24 +47,7 @@ export default function ChatPage() {
   const [showRefundFinderModal, setShowRefundFinderModal] = useState(false)
   const [showRecommendationModal, setShowRecommendationModal] = useState(false)
 
-  const [chatSessions, setChatSessions] = useState<ChatSession[]>([
-    {
-      // id: "1",
-      title: "실손보험 환급금 문의",
-      type: "refund",
-      lastMessage: "네, 확인해보니 약 150만원의 환급금이...",
-      timestamp: new Date(Date.now() - 1000 * 60 * 30),
-      messageCount: 12,
-    },
-    {
-      // id: "2",
-      title: "보험 약관 분석",
-      type: "analysis",
-      lastMessage: "해당 약관에 따르면 특약 조건이...",
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2),
-      messageCount: 8,
-    },
-  ])
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([])
 
   const router = useRouter();
   const params = useParams();
@@ -147,7 +131,7 @@ export default function ChatPage() {
           window.history.pushState(null, '', `/chat/${newChatId}`)
         }
       } else if(response.chat_id && chatId){
-        
+        // Special case, do nothing
       } else {
         const errorMessage: Message = {
           id: uuidv4(),
@@ -183,56 +167,89 @@ export default function ChatPage() {
     setShowNewChatModal(true)
   }
 
-  const handleStartChatFromModal = (type: string, title?: string, initialMessage?: string) => {
-    // TODO: 여기도 위에처럼 바꿔줘야 함
-    
-    if (initialMessage) {
-      setMessages([
-        {
-          id: uuidv4(), // ID is present, which is good
-          role: "user",
-          content: initialMessage,
+  const handleStartChatFromModal = async (type: string, title?: string, initialMessage?: string) => {
+    if (!initialMessage || isLoading) return;
+
+    const userMessage: Message = {
+      id: uuidv4(),
+      role: "user",
+      content: initialMessage,
+    };
+
+    const newMessages = [userMessage];
+    setMessages(newMessages);
+    setInput('');
+    setIsLoading(true);
+
+    try {
+      const response = await sendChatRequest(newMessages, chatId);
+
+      if (response && response.answer) {
+        const assistantMessage: Message = {
+          id: uuidv4(),
+          role: 'assistant',
+          content: response.answer,
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+
+        if (response.chat_id && !chatId) {
+          const newChatId = response.chat_id;
+          setChatId(newChatId);
+          window.history.pushState(null, '', `/chat/${newChatId}`);
         }
-      ]);
-    } else {
-      setMessages([]);
+      } else if (response.chat_id && chatId) {
+        // Special case, do nothing
+      } else {
+        const errorMessage: Message = {
+          id: uuidv4(),
+          role: 'assistant',
+          content: response.error || '오류가 발생했습니다.',
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+      }
+    } catch (error) {
+      console.error("Error in handleStartChatFromModal: ", error);
+      const errorMessage: Message = {
+        id: uuidv4(),
+        role: 'assistant',
+        content: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
     }
-
-    // const newSession: ChatSession = {
-    //   // id: newChatId,
-    //   title: title || `새 상담 - ${new Date().toLocaleDateString()}`,
-    //   type,
-    //   lastMessage: initialMessage || "",
-    //   timestamp: new Date(),
-    //   messageCount: initialMessage ? 1 : 0,
-    // }
-    // setChatSessions((prev) => [newSession, ...prev])
-    
-    // // const userMessage: Message = {
-    // //   role: 'user',
-    // //   content: input,
-    // //   // chat_id: chatId,
-    // //   first_message: false
-    // // }
-
-    // const newMessages = [...messages, userMessage]
-    // sendChatRequest(newMessages, setMessages, setIsLoading)
   }
 
-  // TODO: 추후에 다른 방식으로 구현하도록 할것
-  // const handleDeleteChat = (chatId: string) => {
-  //   setChatSessions((prev) => prev.filter((chat) => chat.id !== chatId))
-  //   if (currentChatId === chatId) {
-  //     setCurrentChatId(null)
-  //     setMessages([])
-  //   }
-  // }
+  const fetchChatSessions = async () => {
+    try {
+      const response = await fetch('/api/chat/chats'); // Next.js API route
+      if (!response.ok) {
+        console.error("Failed to fetch chat sessions");
+        return;
+      }
+      const data = await response.json();
+      const formattedSessions: ChatSession[] = data.map((chat: any) => ({
+        id: chat.id,
+        title: chat.title,
+        type: chat.type,
+        timestamp: new Date(chat.updated_at),
+      }));
+      setChatSessions(formattedSessions);
+    } catch (error) {
+      console.error("Error fetching chat sessions:", error);
+    }
+  };
 
-  // const handleSelectChat = (chatId: string) => {
-    // setCurrentChatId(chatId)
-    // Here you would typically fetch the message history for the selected chat
-    // For now, we just clear the messages as per the original logic.
-    // setMessages([])
+  useEffect(() => {
+    // Fetch chat history when the history panel is opened
+    if (showChatHistory) {
+        fetchChatSessions();
+    }
+  }, [showChatHistory]);
+
+  const handleSelectChat = (chatId: number) => {
+    router.push(`/chat/${chatId}`);
+  };
 
   const handleInsuranceCompanyComplete = (companies: string[] | null) => {
     if (companies === null) {
@@ -416,15 +433,14 @@ export default function ChatPage() {
               <Input placeholder="채팅 검색" className="pl-10" />
             </div>
             
-            {/* // TODO : chatID 관련된 부분 임시 주석처리 */}
-            {/* <h4 className="text-sm font-medium text-gray-500 mb-3">최근 채팅</h4>
+            <h4 className="text-sm font-medium text-gray-500 mb-3">최근 채팅</h4>
             <ScrollArea className="flex-1">
               <div className="space-y-2">
                 {chatSessions.map((chat) => (
                   <div
                     key={chat.id}
                     className={`p-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-50 ${ 
-                      currentChatId === chat.id ? "bg-yellow-50 border border-yellow-200" : "bg-white border"
+                      chatId === chat.id ? "bg-yellow-50 border border-yellow-200" : "bg-white border"
                     }`}
                     onClick={() => handleSelectChat(chat.id)}
                   >
@@ -434,30 +450,16 @@ export default function ChatPage() {
                           <h4 className="text-sm font-medium truncate">{chat.title}</h4>
                           <Badge className={`text-xs ${getChatTypeColor(chat.type)}`}>{getChatTypeName(chat.type)}</Badge>
                         </div>
-                        <p className="text-xs text-gray-500 truncate">{chat.lastMessage || "새 채팅"}</p>
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-xs text-gray-400">{formatTimestamp(chat.timestamp)}</span>
-                          <span className="text-xs text-gray-400">{chat.messageCount}개 메시지</span>
                         </div>
                       </div>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                            <MoreVertical className="h-3 w-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleDeleteChat(chat.id)} className="text-red-600">
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            삭제
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      {/* TODO: Add delete functionality later */}
                     </div>
                   </div>
                 ))}
               </div>
-            </ScrollArea> */}
+            </ScrollArea>
           </div>
         )}
 

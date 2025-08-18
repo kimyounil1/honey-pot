@@ -40,7 +40,11 @@ async def create_chat(db: AsyncSession, chat_in: chatSchema.NewChat) -> chatMode
 # 특정 user_id에 대해 채팅방 목록 불러오기
 # SELECT id, title, type, updated_at FROM chats WHERE user_id = 'CURRENT_USER_ID' ORDER BY updated_at DESC;
 async def get_chat_list(db: AsyncSession, user_id: int):
-    result = await db.execute(select(chatModel.Chat).where(userModel.User.user_id == user_id).order_by(chatModel.Chat.updated_at.desc()))
+    result = await db.execute(
+        select(chatModel.Chat)
+        .where(chatModel.Chat.user_id == user_id)
+        .order_by(chatModel.Chat.updated_at.desc())
+    )
     return result.scalars().all()
 
 # 특정 채팅방 선택시 메세지 불러오기
