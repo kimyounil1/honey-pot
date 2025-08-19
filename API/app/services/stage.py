@@ -5,7 +5,7 @@ from fastapi import UploadFile
 
 from app.services import fallback
 from app.services.startend import Mode, classify_with_llm, build_messages
-from app.rag.retriever import retrieve, policy_db_lookup as _policy_db_lookup
+from app.rag.retriever import retrieve
 from app.services.ocr import ocr_file
 from app.services.ingest import ingest_policy
 from app.schemas import userSchema
