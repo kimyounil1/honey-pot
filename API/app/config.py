@@ -1,6 +1,6 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
+from typing import Optional, Literal
 from pydantic import Field
-
 
 class Settings(BaseSettings):
     # Pydantic-settings will automatically load these from environment variables.
@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     WATSONX_URL: str
     WATSONX_PROJECT_ID: str
     WATSONX_MODEL_ID: str
+
+    NON_BENEFIT_EXCEL_PATH: Optional[str] = Field(
+        default="./app/data/비급여_리스트.xlsx"
+    )
+    NON_BENEFIT_IMPORT_MODE: Literal["replace", "upsert"] = Field(default="replace")
+    NON_BENEFIT_SKIP_IF_EXISTS: bool = Field(default=True)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

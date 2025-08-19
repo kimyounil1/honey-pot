@@ -5,7 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, engine, AsyncSessionLocal
-from app.routers import user, policy, claim, chat, document, test
+from app.services.non_benefit_seed import maybe_seed_on_start
+from app.routers import user, policy, claim, chat, document, test, non_benefit
 from app.crud import userCRUD
 from app.schemas import userSchema
 from contextlib import asynccontextmanager
@@ -43,8 +44,18 @@ async def lifespan(app: FastAPI):
                 print(f"Admin user '{admin_email}' already exists.")
         else:
             print("ADMIN_EMAIL or ADMIN_PW environment variables not set. Skipping admin creation.")
+        try:
+            inserted = await maybe_seed_on_start(db)
+            if inserted:
+                print(f"[non-benefit] seeded {inserted} rows on startup")
+            else:
+                print("[non-benefit] seeding skipped (no path or data exists).")
+        except Exception as e:
+            (
+                print(f"[non-benefit] seeding failed: {e}"))
     yield
     print("Shutting down...")
+
 
 
 app = FastAPI(lifespan=lifespan, title="InsuranceApp")
@@ -65,5 +76,6 @@ app.include_router(claim.router)
 app.include_router(chat.router)
 app.include_router(document.router)
 app.include_router(test.router)
+app.include_router(non_benefit.router)
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
