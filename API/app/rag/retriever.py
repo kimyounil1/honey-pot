@@ -251,3 +251,17 @@ async def retrieve(
     except Exception as e:
         logger.exception("retrieve failed: %s", e)
         return ""
+
+#
+from typing import Dict, Any
+
+async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: str) -> str:
+    """
+    TODO: 실제 약관 DB 직조회 로직으로 교체.
+    현재는 빈 문자열을 반환하여 stage에서 RAG 보조를 시도하게 둡니다.
+    """
+    try:
+        return ""
+    except Exception as e:
+        logger.warning("policy_db_lookup failed: %s", e)
+        return ""
