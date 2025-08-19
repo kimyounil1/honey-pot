@@ -12,6 +12,7 @@ from app.config import settings
 # watsonx.ai (pip install ibm-watsonx-ai)
 try:
     from ibm_watsonx_ai import Credentials, APIClient
+    from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as GenParams
     from ibm_watsonx_ai.foundation_models import ModelInference
 except Exception:
     Credentials = None
@@ -113,7 +114,7 @@ def _wx_model() -> Optional[ModelInference]:
     return ModelInference(
         model_id=settings.WATSONX_MODEL_ID,
         credentials=creds,
-        project_id=settings.WATSONX_PROJECT_ID,
+        space_id=settings.WATSONX_SPACE_ID,
     )
 
 def _wx_token_count(model: Optional[ModelInference], text: str) -> int:
@@ -128,7 +129,7 @@ def _wx_token_count(model: Optional[ModelInference], text: str) -> int:
 def _fit_snippets_to_limit(
     snippets: List[Dict[str, Any]],
     user_query: str,
-    token_limit: int = 400_0,
+    token_limit: int = 8_000,
     system_overhead_tokens: int = 600,
     per_snippet_header_tokens: int = 12,
 ) -> Tuple[str, List[Dict[str, Any]]]:
@@ -199,14 +200,15 @@ def _wx_generate_answer(prompt: str) -> str:
     if model is None:
         return ""
     try:
-        resp = model.generate_text(
-            prompt=prompt,
-            max_new_tokens=800,
-            temperature=0.2,
-            decoding_method="greedy",
-            repetition_penalty=1.05,
-            stop_sequences=[],
-        )
+        gen_params = {
+            GenParams.MAX_NEW_TOKENS: 4000,
+            GenParams.TEMPERATURE: 0.2,
+            GenParams.DECODING_METHOD: "greedy",
+            GenParams.REPETITION_PENALTY: 1.05,
+            GenParams.STOP_SEQUENCES: [],
+        }
+        resp = model.generate_text(prompt=prompt, params=gen_params)
+
         return (resp or "").strip()
     except Exception as e:
         logger.exception("watsonx.ai generation failed: %s", e)
@@ -233,11 +235,12 @@ async def retrieve(
         context_block, _ = _fit_snippets_to_limit(
             snippets=snippets,
             user_query=query,
-            token_limit=10_000,
+            token_limit=4_000,
         )
         prompt = _rag_prompt(user_query=query, context_block=context_block)
+        print("[RAG AUTO PROMPT END]\n" + prompt)
         answer = _wx_generate_answer(prompt)
-
+        print("[RAG AUTO ANSWER END]\n" + answer)
         if (answer or "").strip():
             # 외부(OpenAI) 폴리싱이 컨텍스트로 사용할 수 있게 명확한 헤더 부여
             return "[RAG AUTO ANSWER]\n" + answer
@@ -247,19 +250,4 @@ async def retrieve(
 
     except Exception as e:
         logger.exception("retrieve failed: %s", e)
-        return ""
-
-
-#
-from typing import Dict, Any
-
-async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: str) -> str:
-    """
-    TODO: 실제 약관 DB 직조회 로직으로 교체.
-    현재는 빈 문자열을 반환하여 stage에서 RAG 보조를 시도하게 둡니다.
-    """
-    try:
-        return ""
-    except Exception as e:
-        logger.warning("policy_db_lookup failed: %s", e)
         return ""
