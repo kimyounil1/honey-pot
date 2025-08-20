@@ -12,7 +12,6 @@ from app.services import llm_gateway
 from app.schemas import userSchema, chatSchema
 
 from app.crud import chatCRUD
-from app.models import userModel
 from app.auth import deps
 from app.database import get_db
 
@@ -75,8 +74,22 @@ async def read_chat_messages(
         raise HTTPException(status_code=404, detail="no chat")
     elif (chat.user_id != current_user.user_id and current_user.user_id != 1):
         raise HTTPException(status_code=403, detail="You do not have permission to access this chat.")
-    messages = await chatCRUD.get_messages(db=db, chat_id=chat_id)
+    messages = await chatCRUD.get_messages(db, chat_id)
     return messages
+
+@router.get("/{chat_id}/messageState", response_model=chatSchema.MessageStateResponse)
+async def read_message_state(
+    chat_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: userSchema.UserRead = Depends(deps.get_current_user),
+):
+    chat = await chatCRUD.get_chat(db, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="no chat")
+    elif (chat.user_id != current_user.user_id and current_user.user_id != 1):
+        raise HTTPException(status_code=403, detail="You do not have permission to access this chat.")
+    last_message = await chatCRUD.get_last_message(db, chat_id)
+    return chatSchema.MessageStateResponse(state=last_message.state)
 
 @router.post("/ask")
 async def ask(
@@ -87,56 +100,70 @@ async def ask(
     body = form_data
     file = form_data.file
     try:
-        # 1단계: Stage에서 준비(폴백→OCR→DB→RAG→메시지)
-        prep = await stage.prepare_llm_request(
-            user_id=current_user.user_id,
-            text=body.text,
-            attachment_ids=body.attachment_ids or [],
-            file=file,  # - OCR은 stage에서 처리
-        )
-
-        mode = prep["mode"]
-        mode_str = getattr(mode, "name", str(mode))   # Enum 대응
-        attachments_used = prep.get("attachments_used", [])
-        static_answer = prep.get("static_answer") or ""
-
-        # 2-1단계: 채팅의 시작일 경우 create_chat 호출
+        # 1단계: 채팅의 시작일 경우 create_chat 호출
         if not body.chat_id:
             newChat = await chatCRUD.create_chat(
                 db,
                 chatSchema.NewChat(
                     user_id = current_user.user_id,
                     title=body.text[:30],
-                    type=mode_str  # 팀 스키마와 일치(필요시 .lower()로 통일)
                 )
             )
             # 채팅의 시작일 경우 chat_id를 받아옴
             chat_id = newChat.id
         else:
             chat_id = body.chat_id
-            await chatCRUD.add_type_to_chat(db, chat_id, mode_str)
 
-        # 2-2단계: 사용자 메세지는 항상 저장
+        # 2단계: 사용자 메세지는 항상 즉시 저장
         await chatCRUD.create_message(
             db,
             chatSchema.Message(
                 chat_id = chat_id,
                 role="user",
                 content=body.text,
-                type="general"
+                type="general",
+                state="done"
             )
         )
 
-        # 3단계: 폴백이면 정적 답 저장 후 즉시 반환
+        # 3-1단계: 비어있는 어시스턴트 메세지 저장
+        await chatCRUD.create_message(
+            db,
+            chatSchema.Message(
+                chat_id = chat_id,
+                role="assistant",
+                content="",
+                type="",
+                state="commencing",
+            )
+        )
+        # 3-2단계: Stage에서 준비(폴백→OCR→DB→RAG→메시지)
+        prep = await stage.prepare_llm_request(
+            db=db,
+            user_id=current_user.user_id,
+            text=body.text,
+            attachment_ids=body.attachment_ids or [],
+            file=file,  # - OCR은 stage에서 처리
+            chat_id=chat_id,
+        )
+        mode = prep["mode"]
+        mode_str = getattr(mode, "name", str(mode))   # Enum 대응
+        attachments_used = prep.get("attachments_used", [])
+        static_answer = prep.get("static_answer") or ""
+        # 모드가 확정되면 메세지에 type을 추가
+        await chatCRUD.update_message_type(db, chat_id, mode_str)
+        
+        # 4단계: 폴백이면 정적 답 저장 후 즉시 반환
         if static_answer:
-            answer = static_answer
+            answer = static_answer.get("answer") if isinstance(static_answer, dict) else static_answer
             await chatCRUD.create_message(
                 db,
                 chatSchema.Message(
                     chat_id=chat_id,
                     role="assistant",
                     content=answer,
-                    type=mode_str
+                    type=mode_str,
+                    state="done"
                 ),
             )
             logger.info("[ROUTER] FALLBACK. mode=%s, used_attachments=%s", mode_str, attachments_used)
@@ -148,21 +175,18 @@ async def ask(
                 "chat_id": chat_id,
             }
 
-        # 4-1단계: LLM 호출(폴백이 아닌 경우) 
+        # 5-1단계: LLM 호출(폴백이 아닌 경우) 
         messages = prep["messages"]
         logger.info("[ROUTER] Calling LLM. mode=%s, messages_len=%d", mode_str, len(messages))
         answer = await llm_gateway.call_llm(messages)
-
-        # 4-2단계: 어시스턴트 메세지 저장(폴백이 아닌 경우)
-        await chatCRUD.create_message(
-            db,
-            chatSchema.Message(
-                chat_id = chat_id,
-                role="assistant",
-                content=answer,
-                type=mode_str
-            )
-        )
+        # 메세지에 content을 추가
+        await chatCRUD.update_message_content(db, chat_id, answer)
+        # 메세지 state 갱신 (searching)
+        try:
+            await chatCRUD.update_message_state(db, chat_id, "done")
+        except Exception as e:
+            await chatCRUD.update_message_state(db, chat_id, "failed")
+            raise
 
         logger.info("[ROUTER] LLM done. mode=%s, used_attachments=%s", mode_str, attachments_used)
         return {

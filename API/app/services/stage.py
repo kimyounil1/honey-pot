@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import fallback
 from app.services.startend import Mode, classify_with_llm, build_messages
@@ -9,6 +10,7 @@ from app.rag.retriever import retrieve, policy_db_lookup as _policy_db_lookup
 from app.services.ocr import ocr_file
 from app.services.ingest import ingest_policy
 from app.schemas import userSchema
+from app.crud import chatCRUD
 
 logger = logging.getLogger(__name__)
 
@@ -23,15 +25,23 @@ async def _classify(user_text: str, attachment_ids: Optional[List[str]]) -> Tupl
 
 async def prepare_llm_request(
     *,
+    db: AsyncSession,
     user_id: int | str,
     text: str,
     attachment_ids: Optional[List[str]] = None,
     file: UploadFile | None = None,
     current_user: userSchema.UserRead | None = None,
+    chat_id: int,
 ) -> Dict[str, Any]:
     att_ids = list(attachment_ids or [])
 
     # 1) 분류 (동기 classify_with_llm에 맞춰 래퍼 사용)
+    # 메세지 state 갱신 (classifying)
+    try:
+        await chatCRUD.update_message_state(db, chat_id, "classifying")
+    except Exception as e:
+        await chatCRUD.update_message_state(db, chat_id, "failed")
+        raise
     mode, entities, use_retrieval = await _classify(text, att_ids)
     logger.info("[STAGE] classify -> mode=%s | text='%s'", getattr(mode, "name", str(mode)), text[:80])
 
@@ -48,6 +58,12 @@ async def prepare_llm_request(
 
     # 3) OCR (TERMS/REFUND + 파일)
     if file and mode in (Mode.TERMS, Mode.REFUND):
+        # 메세지 state 갱신 (analyzing)
+        try:
+            await chatCRUD.update_message_state(db, chat_id, "analyzing")
+        except Exception as e:
+            await chatCRUD.update_message_state(db, chat_id, "failed")
+            raise
         try:
             ocr_text = await ocr_file(file)
             logger.info("[STAGE] OCR extracted %s chars", len(ocr_text))
@@ -65,6 +81,12 @@ async def prepare_llm_request(
             logger.warning("[STAGE] OCR failed: %s", e)
 
     # 4) DB-우선 조회
+    # 메세지 state 갱신 (searching)
+    try:
+        await chatCRUD.update_message_state(db, chat_id, "searching")
+    except Exception as e:
+        await chatCRUD.update_message_state(db, chat_id, "failed")
+        raise
     db_block = await _policy_db_lookup(mode=mode, entities=entities, user_text=text)
     db_hit = bool((db_block or "").strip())
 
@@ -74,6 +96,12 @@ async def prepare_llm_request(
         rag_block = await retrieve(mode=mode, user_id=str(user_id), query=text, attachment_ids=att_ids)
 
     # 6) 메시지 빌드 (context 하나로 합치기)
+    # 메세지 state 갱신 (building)
+    try:
+        await chatCRUD.update_message_state(db, chat_id, "building")
+    except Exception as e:
+        await chatCRUD.update_message_state(db, chat_id, "failed")
+        raise
     context = "\n\n".join([s for s in [db_block, rag_block] if s]).strip()
     messages = build_messages(mode=mode, user_text=text, context=context)
 

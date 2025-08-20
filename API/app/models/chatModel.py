@@ -34,6 +34,7 @@ class Message(Base):
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.now())
     type = Column(String(50), default="general")
+    state = Column(Enum('commencing', 'classifying', 'analyzing', 'searching', 'building', 'done', 'failed', name="state_enum"), nullable=False)
 
     # Chat 모델과의 관계를 정의합니다.
     chat = relationship("Chat", back_populates="messages")
