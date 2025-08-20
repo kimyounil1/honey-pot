@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     WATSONX_URL: str
     WATSONX_PROJECT_ID: str
     WATSONX_MODEL_ID: str
-
+    WATSONX_SPACE_ID: str = "d65dae9d-dcc7-421f-9fbc-e0f21f282a17"
     NON_BENEFIT_EXCEL_PATH: Optional[str] = Field(
         default="./app/data/비급여_리스트.xlsx"
     )
