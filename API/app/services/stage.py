@@ -1,17 +1,14 @@
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple
 import asyncio
 
-from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services import fallback
+from app.services import fallback, vector_db
 from app.services.startend import Mode, classify_with_llm, build_messages
 from app.rag.retriever import retrieve, policy_db_lookup as _policy_db_lookup
-from app.services.ocr import ocr_file
-from app.services.ingest import ingest_policy
-from app.schemas import userSchema
-from app.crud import chatCRUD
+from app.crud import chatCRUD, nonBenefitCRUD
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +29,9 @@ async def prepare_llm_request(
     user_id: int | str,
     text: str,
     attachment_ids: Optional[List[str]] = None,
-    file: UploadFile | None = None,
-    current_user: userSchema.UserRead | None = None,
     chat_id: int,
+    disease_code: str | None = None,
+    product_id: str | None = None,
 ) -> Dict[str, Any]:
     att_ids = list(attachment_ids or [])
 
@@ -46,7 +43,12 @@ async def prepare_llm_request(
         await chatCRUD.update_message_state(db, chat_id, "failed")
         raise
     mode, entities, use_retrieval = await _classify(text, att_ids)
-    logger.info("[STAGE] classify -> mode=%s | text='%s'", getattr(mode, "name", str(mode)), text[:80])
+    logger.info(
+        "[STAGE] classify -> mode=%s | text='%s'",
+        getattr(mode, "name", str(mode)),
+        text[:80],
+    )
+    code_for_check = (disease_code or entities.get("disease_code") or "").strip().upper()
 
     # 2) FALLBACK은 정적 응답
     if mode == Mode.FALLBACK:
@@ -59,31 +61,7 @@ async def prepare_llm_request(
             "static_answer": static,
         }
 
-    # 3) OCR (TERMS/REFUND + 파일)
-    if file and mode in (Mode.TERMS, Mode.REFUND):
-        # 메세지 state 갱신 (analyzing)
-        try:
-            await chatCRUD.update_message_state(db, chat_id, "analyzing")
-        except Exception as e:
-            await chatCRUD.update_message_state(db, chat_id, "failed")
-            raise
-        try:
-            ocr_text = await ocr_file(file)
-            logger.info("[STAGE] OCR extracted %s chars", len(ocr_text))
-            meta = {
-                "policy_id": f"{(current_user.user_id if current_user else user_id)}-{file.filename}",
-                "uploader_id": current_user.user_id if current_user else user_id,
-                "filename": file.filename,
-            }
-            try:
-                indexed = await ingest_policy(ocr_text, meta)
-                logger.info("[STAGE] OpenSearch indexed %s docs policy_id=%s", indexed, meta["policy_id"])
-            except Exception as ingest_err:
-                logger.warning("[STAGE] Ingest failed: %s", ingest_err)
-        except Exception as e:
-            logger.warning("[STAGE] OCR failed: %s", e)
-
-    # 4) DB-우선 조회
+    # 3) DB-우선 조회
     # 메세지 state 갱신 (searching)
     try:
         await chatCRUD.update_message_state(db, chat_id, "searching")
@@ -93,26 +71,46 @@ async def prepare_llm_request(
     db_block = await _policy_db_lookup(mode=mode, entities=entities, user_text=text)
     db_hit = bool((db_block or "").strip())
 
-    # 5) (필요 시) RAG 보조
-    rag_block = ""
+    # 4) (필요 시) RAG 보조
+    rag_parts: List[str] = []
     if use_retrieval and not db_hit and mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND):
-        # rag_block = await retrieve(mode=mode, user_id=str(user_id), query=text, attachment_ids=att_ids)
-        rag_block = await asyncio.to_thread(
+        os_block = await asyncio.to_thread(
             retrieve,
             mode=mode,
             user_id=str(user_id),
             query=text,
             attachment_ids=att_ids,
+            product_id=product_id,
+            limit=10,
         )
+        if os_block:
+            rag_parts.append(os_block)
+    rag_block = "\n\n".join([s for s in rag_parts if s])
 
-    # 6) 메시지 빌드 (context 하나로 합치기)
+    benefit_ctx = ""
+    if mode == Mode.REFUND:
+        if not code_for_check:
+            m = re.search(r"\b([A-Za-z][0-9]{2,3}[A-Za-z0-9]*)\b", text or "")
+            if m:
+                code_for_check = m.group(1).upper()
+        if code_for_check:
+            try:
+                item = await nonBenefitCRUD.get_by_code(db, code_for_check)
+                if item:
+                    benefit_ctx = f"질병 코드 {code_for_check}는 비급여 항목입니다."
+                else:
+                    benefit_ctx = f"질병 코드 {code_for_check}는 급여 항목입니다."
+            except Exception as e:
+                logger.warning("[STAGE] nonBenefit lookup failed: %s", e)
+
+    # 5) 메시지 빌드 (context 하나로 합치기)
     # 메세지 state 갱신 (building)
     try:
         await chatCRUD.update_message_state(db, chat_id, "building")
     except Exception as e:
         await chatCRUD.update_message_state(db, chat_id, "failed")
         raise
-    context = "\n\n".join([s for s in [db_block, rag_block] if s]).strip()
+    context = "\n\n".join([s for s in [db_block, rag_block, benefit_ctx] if s]).strip()
     messages = build_messages(mode=mode, user_text=text, context=context)
 
     logger.info(

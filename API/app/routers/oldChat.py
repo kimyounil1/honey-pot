@@ -143,7 +143,6 @@ async def ask(
             user_id=current_user.user_id,
             text=body.text,
             attachment_ids=body.attachment_ids or [],
-            file=file,  # - OCR은 stage에서 처리
             chat_id=chat_id,
         )
         mode = prep["mode"]

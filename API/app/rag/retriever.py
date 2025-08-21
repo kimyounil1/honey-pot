@@ -1,6 +1,6 @@
 # app/rag/retriever.py
 from __future__ import annotations
-from typing import Sequence, List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import os
 import logging
 import boto3
@@ -40,21 +40,55 @@ def _trim(s: str, n: int = 120) -> str:
     s = (s or "").replace("\n", " ").strip()
     return (s[:n] + "…") if len(s) > n else s
 
-def _search_snippets(query: str, k: int = 6) -> List[Dict[str, Any]]:
+def _search_snippets(query: str, k: int = 8, policy_id: Optional[str] = None) -> List[Dict[str, Any]]:
     index = getattr(settings, "OPENSEARCH_INDEX", None)
 
-    body = {
-        "size": max(1, min(k, 20)),
-        "query": {
-            "multi_match": {
-                "query": query,
-                "fields": ["section_title^2", "content"],
-                "type": "best_fields",
-                "tie_breaker": 0.2
+    if policy_id:
+        filter_block = [{
+            "bool": {
+                "should": [
+                    {"term": {"policy_id": policy_id}}
+                ]
             }
-        },
-        "_source": True,
-    }
+        }]
+
+        must_block: List[Dict[str, Any]] = []
+        if (query or "").strip():
+            must_block.append({
+                "multi_match": {
+                    "query": query,
+                    "fields": ["content^2", "section_title", "embed_input", "text"],
+                    "type": "best_fields",
+                    "operator": "or",
+                }
+            })
+        else:
+            must_block.append({"match_all": {}})
+
+        body: Dict[str, Any] = {
+            "size": max(1, min(k, 20)),
+            "query": {
+                "bool": {
+                    "filter": filter_block,
+                    "must": must_block,
+                }
+            },
+            "_source": True,
+        }
+    else:
+        body = {
+            "size": max(1, min(k, 20)),
+            "query": {
+                "multi_match": {
+                    "query": query,
+                    "fields": ["section_title^2", "content"],
+                    "type": "best_fields",
+                    "tie_breaker": 0.2
+                }
+            },
+            "_source": True,
+        }
+
     resp = _os_client().search(index=index, body=body)
 
     # total 파싱(버전에 따라 dict/int 혼재)
@@ -129,7 +163,7 @@ def _wx_token_count(model: Optional[ModelInference], text: str) -> int:
 def _fit_snippets_to_limit(
     snippets: List[Dict[str, Any]],
     user_query: str,
-    token_limit: int = 8_000,
+    token_limit: int = 30000,
     system_overhead_tokens: int = 600,
     per_snippet_header_tokens: int = 12,
 ) -> Tuple[str, List[Dict[str, Any]]]:
@@ -215,27 +249,24 @@ def _wx_generate_answer(prompt: str) -> str:
         return ""
 
 # ============================= Public API =============================
-
 def retrieve(
-    mode: Mode,
+    *,
+    mode,
     user_id: str,
     query: str,
-    attachment_ids: Sequence[str] | None,
-    k: int = 6,
+    attachment_ids: List[str] | None = None,
+    product_id: Optional[str] = None,
+    limit: int = 5,
+    fallback_to_global: bool = False,
 ) -> str:
-    """
-    Auto-RAG 컨텍스트 생성기:
-    - OpenSearch에서 스니펫 검색 → 10,000 토큰 한도로 컨텍스트 구성
-    - watsonx가 해당 컨텍스트만으로 초안 답변 생성
-    - 생성된 초안 답변을 '[RAG AUTO ANSWER]' 블록으로 반환
-    - watsonx 미설치/오류 시, 컨텍스트 블록만 반환(파이프라인 유지)
-    """
     try:
-        snippets = _search_snippets(query=query, k=k)
+        if product_id:
+            snippets = _search_snippets(query=query, k=limit, policy_id=product_id)
+        else:
+            snippets = _search_snippets(query=query, k=limit)
         context_block, _ = _fit_snippets_to_limit(
             snippets=snippets,
             user_query=query,
-            token_limit=4_000,
         )
         prompt = _rag_prompt(user_query=query, context_block=context_block)
         print("[RAG AUTO PROMPT END]\n" + prompt)
@@ -251,7 +282,6 @@ def retrieve(
     except Exception as e:
         logger.exception("retrieve failed: %s", e)
         return ""
-
 #
 from typing import Dict, Any
 
