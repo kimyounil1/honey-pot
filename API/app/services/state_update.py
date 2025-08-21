@@ -45,16 +45,18 @@ async def process_assistant_message(
             # Fallback (정적 응답)
             if static_answer:
                 answer = static_answer.get("answer") if isinstance(static_answer, dict) else static_answer
-                await chatCRUD.create_message(
-                    db,
-                    chatSchema.Message(
-                        chat_id=chat_id,
-                        role="assistant",
-                        content=answer,
-                        type=mode_str,
-                        state="done",
-                    ),
-                )
+                # await chatCRUD.create_message(
+                #     db,
+                #     chatSchema.Message(
+                #         chat_id=chat_id,
+                #         role="assistant",
+                #         content=answer,
+                #         type=mode_str,
+                #         state="done",
+                #     ),
+                # )
+                await chatCRUD.update_message_state(db, chat_id, "done")
+                await chatCRUD.update_message_content(db, chat_id, answer)
                 await db.commit()
                 logger.info("[BG] FALLBACK complete: chat=%s mode=%s", chat_id, mode_str)
                 return

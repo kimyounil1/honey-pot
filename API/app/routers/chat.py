@@ -109,6 +109,17 @@ async def read_message_state(chat_id: int, current_user: userSchema.UserRead = D
     except asyncio.TimeoutError:
         # 폴링이므로 504로 빠르게 실패 → 클라가 0.3s 후 재시도
         raise HTTPException(status_code=504, detail="messageState timed out (>1s)")
+    
+@router.get("/{chat_id}/messageState/complete")
+async def update_message_state(chat_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        # ✅ 별도 세션(짧게 열고 빨리 닫기). 기존 db 세션 대신 사용.
+            await chatCRUD.update_message_state(db, chat_id, "complete")
+            await db.commit()
+    except Exception as e:
+        pass
+    return chatSchema.MessageStateResponse(state="complete")
+
 
 @router.post("/ask")
 async def ask(
@@ -168,7 +179,6 @@ async def ask(
             file,
             # db
         )
-
         # 5) 즉시 응답 반환
         return {
             "ok": True,
