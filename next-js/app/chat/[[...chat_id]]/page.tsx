@@ -65,6 +65,7 @@ export default function ChatPage() {
     : undefined;
 
   const [messages, setMessages] = useState<Message[]>([])
+  const [lastMessage, setLastMessage] = useState<Message | null>(null)
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [messageState, setMessageState] = useState<MessageState>("commencing")
@@ -162,6 +163,7 @@ export default function ChatPage() {
         id: uuidv4()
       }));
       setMessages(messagesWithClientIds)
+      setLastMessage(null)
     } catch(error){
       console.error("Failed to fetch chat history: ", error)
     } finally {
@@ -177,11 +179,11 @@ export default function ChatPage() {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    const userMessage: Message = { id: uuidv4(), role: 'user', content: input, };
+    const userMessage: Message = { id: uuidv4(), role: 'user', content: input };
     const placeholderId = uuidv4();
-    const assistantPlaceholder: Message = { id: placeholderId, role: 'assistant', content: '', };
-    setMessages(prev => [...prev, userMessage, assistantPlaceholder]);
-    setMessages([{ id: uuidv4(), role: 'assistant', content: "임시", }])    
+    const assistantPlaceholder: Message = { id: placeholderId, role: 'assistant', content: '' };
+    setMessages(prev => [...prev, userMessage]);
+    setLastMessage(assistantPlaceholder);
     setInput("");
     setIsLoading(true);
     setMessageState("commencing");
@@ -198,15 +200,13 @@ export default function ChatPage() {
 
       // 동기 응답(폴백 등)인 경우에는 바로 치환
       if (response?.answer) {
-        setMessages(prev => prev.map(m => m.id === placeholderId
-          ? { id: placeholderId, role: "assistant", content: response.answer }
-          : m));
+        setMessages(prev => [...prev, { id: placeholderId, role: "assistant", content: response.answer }]);
+        setLastMessage(null);
       }
     } catch (err) {
       console.error(err);
-      setMessages(prev => prev.map(m => m.id === placeholderId
-        ? { id: placeholderId, role: "assistant", content: "오류가 발생했습니다. 잠시 후 다시 시도해주세요." }
-        : m));
+      setMessages(prev => [...prev, { id: placeholderId, role: "assistant", content: "오류가 발생했습니다. 잠시 후 다시 시도해주세요." }]);
+      setLastMessage(null);
       setMessageState("failed");
     } finally {
       setIsLoading(false);
@@ -242,8 +242,8 @@ export default function ChatPage() {
       content: '',
     };
 
-    const newMessagesWithPlaceholder = [userMessage, assistantPlaceholder];
-    setMessages(newMessagesWithPlaceholder);
+    setMessages([userMessage]);
+    setLastMessage(assistantPlaceholder);
     setInput('');
     setIsLoading(true);
 
@@ -257,7 +257,8 @@ export default function ChatPage() {
           role: 'assistant',
           content: response.answer,
         };
-        setMessages((prev) => prev.map(m => m.id === placeholderId ? assistantMessage : m));
+        setMessages((prev) => [...prev, assistantMessage]);
+        setLastMessage(null);
 
         if (response.chat_id && !chatId) {
           const newChatId = response.chat_id;
@@ -265,14 +266,15 @@ export default function ChatPage() {
         }
         // fetchChatSessions();
       } else if (response?.chat_id && chatId) {
-        setMessages(prev => prev.filter(m => m.id !== placeholderId));
+        setLastMessage(null);
       } else {
         const errorMessage: Message = {
           id: placeholderId,
           role: 'assistant',
           content: response?.error || '오류가 발생했습니다.',
         };
-        setMessages((prev) => prev.map(m => m.id === placeholderId ? errorMessage : m));
+        setMessages((prev) => [...prev, errorMessage]);
+        setLastMessage(null);
       }
     } catch (error) {
       console.error("Error in handleStartChatFromModal: ", error);
@@ -281,7 +283,8 @@ export default function ChatPage() {
         role: 'assistant',
         content: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
       };
-      setMessages((prev) => prev.map(m => m.id === placeholderId ? errorMessage : m));
+      setMessages((prev) => [...prev, errorMessage]);
+      setLastMessage(null);
     } finally {
       setIsLoading(false);
     }
@@ -627,7 +630,7 @@ export default function ChatPage() {
           ) : (
             // Chat message display
             <div className="max-w-3xl mx-auto space-y-4">
-                {messages.length === 0 && chatId && messageState !== "done" ? (
+                {messages.length === 0 && !lastMessage && chatId && messageState !== "done" ? (
                     <div className="flex justify-start">
                     <div className="flex space-x-3 max-w-2xl">
                         <Avatar className="w-8 h-8">
@@ -641,7 +644,7 @@ export default function ChatPage() {
                     </div>
                     </div>
                 ) : (
-                    messages.map((message) => (
+                    [...messages, ...(lastMessage ? [lastMessage] : [])].map((message) => (
                         <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                             <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
                             <Avatar className="w-8 h-8">
