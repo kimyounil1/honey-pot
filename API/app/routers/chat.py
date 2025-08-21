@@ -1,6 +1,6 @@
 # /API/app/routers/chat.py
 import logging
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, Form, HTTPException, BackgroundTasks
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -28,7 +28,8 @@ class AskBody(BaseModel):
     text: str
     attachment_ids: Optional[List[str]] = None  # 업로드된 file_id 배열
     chat_id: Optional[int] = None
-    file: Optional[UploadFile] = None
+    disease_code: Optional[str] = None
+    product_id: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -39,7 +40,8 @@ class AskBody(BaseModel):
             text: str = Form(...),
             attachment_ids: Optional[str] = Form(None),
             chat_id: Optional[str] = Form(None),
-            file: Optional[UploadFile] = File(None)
+            disease_code: Optional[str] = Form(None),
+            product_id: Optional[str] = Form(None),
     ) -> "AskBody":
         ids = json.loads(attachment_ids) if attachment_ids else None
 
@@ -49,9 +51,14 @@ class AskBody(BaseModel):
                 parsed_chat_id = int(chat_id)
             except ValueError:
                 raise HTTPException(status_code=422, detail="Invalid chat_id")
-        valid_file = file if file and file.filename else None
 
-        return cls(text=text, attachment_ids=ids, chat_id=parsed_chat_id, file=valid_file)
+        return cls(
+            text=text,
+            attachment_ids=ids,
+            chat_id=parsed_chat_id,
+            disease_code=disease_code,
+            product_id=product_id,
+        )
 
 ###### 되도록 지우지 말아주세요 ######
 @router.get("/chats", response_model=List[chatSchema.Chat])
@@ -118,7 +125,6 @@ async def ask(
     db: AsyncSession = Depends(get_db)
 ):
     body = form_data
-    file = form_data.file
     try:
         # 1) 채팅 시작 시 create_chat
         if not body.chat_id:
@@ -165,8 +171,8 @@ async def ask(
             current_user.user_id,
             body.text,
             body.attachment_ids,
-            file,
-            # db
+            body.disease_code,
+            body.product_id,
         )
 
         # 5) 즉시 응답 반환

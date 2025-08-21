@@ -1,8 +1,6 @@
 # /API/app/services/state_update.py
 import logging
 from typing import Optional, List
-from fastapi import UploadFile
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import stage, llm_gateway
 from app.schemas import chatSchema
@@ -16,7 +14,8 @@ async def process_assistant_message(
     user_id: int,
     text: str,
     attachment_ids: Optional[List[str]],
-    file: Optional[UploadFile],
+    disease_code: Optional[str] = None,
+    product_id: Optional[str] = None,
 ):
     """
     백그라운드에서 실행되는 어시스턴트 메시지 처리 파이프라인
@@ -24,14 +23,18 @@ async def process_assistant_message(
     async with AsyncSessionLocal() as db:
         try:
             # Stage 준비 (classifying → analyzing → searching → building)
-            prep = await stage.prepare_llm_request(
+            kwargs = dict(
                 db=db,
                 user_id=user_id,
                 text=text,
                 attachment_ids=attachment_ids or [],
-                file=file,
                 chat_id=chat_id,
+                product_id=product_id,
             )
+            if disease_code:
+                kwargs["disease_code"] = disease_code
+
+            prep = await stage.prepare_llm_request(**kwargs)
             await db.commit()
 
             mode = prep["mode"]
