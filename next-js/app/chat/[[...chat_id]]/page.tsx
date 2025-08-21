@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter, useParams } from "next/navigation"
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -42,7 +42,9 @@ type NonDoneState =
   | "building"
   | "failed";
 
-type MessageState = NonDoneState | "done";
+type MessageState = NonDoneState | "done" | "complete";
+const TERMINAL_STATES: MessageState[] = ["done", "failed", "complete"];
+const isTerminal = (s: MessageState) => TERMINAL_STATES.includes(s);
 
 export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -68,7 +70,7 @@ export default function ChatPage() {
   const [lastMessage, setLastMessage] = useState<Message | null>(null)
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [messageState, setMessageState] = useState<MessageState>("commencing")
+  const [messageState, setMessageState] = useState<MessageState>()
 
   const STATE_TEXT: Record<NonDoneState, string> = {
     commencing: "...",
@@ -89,13 +91,73 @@ export default function ChatPage() {
 //   }, [chatId]);
 
   // 상태 폴링
-  useEffect(() => {
-    if (!chatId) return;
+  //########### 두번째부터는 route 안타니까 useEffect도 안 타버림. ######################
+  
+useEffect(() => {
+  if (!chatId) return;
 
+  let active = true;
+  let timeoutId: number | undefined;
+  const controller = new AbortController();
+
+  const tick = async () => {
+    if (!active) return;
+
+    try {
+      const res = await fetch(`/api/chat/${chatId}/messageState?t=${Date.now()}`, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" },
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`API Error: ${res.status}`);
+      const data = await res.json();
+      const state = data.state as MessageState;
+
+      setMessageState(state);
+
+      if (isTerminal(state)) {
+        // 완료 시: 히스토리 갱신 + 서버에 complete 통지(있다면)
+        await fetchChatHistory(chatId);
+        active = false;
+
+        // 이미 서버가 complete를 주는 상황이면 아래 호출은 선택사항
+        // 실패(Abort 등)하더라도 폴링 종료에는 영향 없게 try/catch
+        try {
+          await fetch(`/api/chat/${chatId}/messageState/complete?t=${Date.now()}`, {
+            cache: "no-store",
+            headers: { "Cache-Control": "no-cache" },
+            signal: controller.signal,
+          });
+        } catch {}
+        return;
+      }
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        console.error(e);
+      }
+      // 에러여도 active가 true면 재시도 예약
+    }
+
+    if (active) {
+      timeoutId = window.setTimeout(tick, 300);
+    }
+  };
+
+  tick();
+
+  return () => {
+    active = false;
+    if (timeoutId) clearTimeout(timeoutId);
+    controller.abort();
+  };
+}, [chatId]);
+  
+  const startPolling = (chatId: number) => {
     let active = true;
     const controller = new AbortController(); // cleanup에서만 사용
 
     const tick = async () => {
+    console.log("startPolling 호출", active)
       if (!active) return;
       try {
         const res = await fetch(`/api/chat/${chatId}/messageState?t=${Date.now()}`, {
@@ -105,11 +167,17 @@ export default function ChatPage() {
         });
         if (!res.ok) throw new Error(`API Error: ${res.status}`);
         const data = await res.json();
+        // console.log("******결과:",data)
         setMessageState(data.state as MessageState);
-
+        // 백엔드에 자징되는 complete state 추가
         if (data.state === 'done' || data.state === 'failed') {
           await fetchChatHistory(chatId);
           active = false; // 종료
+          const rss = await fetch(`/api/chat/${chatId}/messageState/complete?t=${Date.now()}`, {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache' },
+            signal: controller.signal,
+          });
           return;
         }
       } catch (e: any) {
@@ -131,15 +199,7 @@ export default function ChatPage() {
     active = false;
     controller.abort(); // 여기서만 abort
   };
-}, [chatId]);
-
-  // 상태가 done/failed로 바뀌면 서버에서 메시지 새로고침
-  useEffect(() => {
-    if(!chatId) return
-    // if(messageState === "done" || messageState === "failed"){
-    //   fetchChatHistory(chatId, { allowEmptyReplace: true });
-    // }
-  }, [chatId, messageState])
+  };
 
   const fetchChatHistory = async (id: number, opts: { allowEmptyReplace?: boolean } = {}) => {
     const { allowEmptyReplace = true } = opts;
@@ -174,7 +234,7 @@ export default function ChatPage() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value)
   }
-
+  const cleanupRef = useRef<(() => void) | null>(null);
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -187,6 +247,15 @@ export default function ChatPage() {
     setInput("");
     setIsLoading(true);
     setMessageState("commencing");
+      // 이전 polling 중지
+    cleanupRef.current?.();
+
+    // 새로운 polling 시작
+    // console.log(typeof(chatId))
+    if(chatId !== undefined){
+        cleanupRef.current = startPolling(chatId);
+    }
+
 
     try {
       const response = await sendChatRequest([...messages, userMessage], chatId);
@@ -196,8 +265,7 @@ export default function ChatPage() {
         router.push(`/chat/${response.chat_id}`);
         fetchChatSessions?.();
       }
-
-      // 동기 응답(폴백 등)인 경우에는 바로 치환
+      // ################ 이 밑의 모든 내용들이 저 response랑 별개로 chat_id 기반으로 useEffect #####################
       if (response?.answer) {
         const assistantMessage: Message = {
           id: placeholderId,
@@ -668,9 +736,9 @@ export default function ChatPage() {
                             <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
                                 <div className="whitespace-pre-wrap">
                                     {message.role === "assistant"
-                                    ? (message.content === "" && messageState && messageState !== "done"
+                                    ? (message.content === "" && messageState && messageState !== "complete"
                                         ? STATE_TEXT[messageState as NonDoneState]
-                                        : (message.content || "..."))
+                                        : (message.content))
                                     : message.content}
                                 </div>
                             </div>
