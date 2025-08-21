@@ -73,16 +73,16 @@ async def prepare_llm_request(
 
     # 4) (필요 시) RAG 보조
     rag_parts: List[str] = []
-    if mode == Mode.TERMS and product_id:
-        docs = vector_db.search_documents(text, product_id=product_id, limit=3)
-        rag_parts.extend([d.get("text", "") for d in docs])
-    elif use_retrieval and not db_hit and mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND):
+    if use_retrieval and not db_hit and mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND):
+        product_id = (entities or {}).get("product_id") or (entities or {}).get("product_code")
         os_block = await asyncio.to_thread(
             retrieve,
             mode=mode,
             user_id=str(user_id),
             query=text,
             attachment_ids=att_ids,
+            product_id=product_id,
+            limit=10,
         )
         if os_block:
             rag_parts.append(os_block)

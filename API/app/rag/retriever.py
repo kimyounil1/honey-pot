@@ -1,6 +1,8 @@
 # app/rag/retriever.py
 from __future__ import annotations
-from typing import Sequence, List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from app.services import vector_db  # OpenSearch client (assumed existing)
 import os
 import logging
 import boto3
@@ -40,7 +42,7 @@ def _trim(s: str, n: int = 120) -> str:
     s = (s or "").replace("\n", " ").strip()
     return (s[:n] + "…") if len(s) > n else s
 
-def _search_snippets(query: str, k: int = 6) -> List[Dict[str, Any]]:
+def _search_snippets(query: str, k: int = 8) -> List[Dict[str, Any]]:
     index = getattr(settings, "OPENSEARCH_INDEX", None)
 
     body = {
@@ -129,7 +131,7 @@ def _wx_token_count(model: Optional[ModelInference], text: str) -> int:
 def _fit_snippets_to_limit(
     snippets: List[Dict[str, Any]],
     user_query: str,
-    token_limit: int = 8_000,
+    token_limit: int = 30000,
     system_overhead_tokens: int = 600,
     per_snippet_header_tokens: int = 12,
 ) -> Tuple[str, List[Dict[str, Any]]]:
@@ -215,14 +217,33 @@ def _wx_generate_answer(prompt: str) -> str:
         return ""
 
 # ============================= Public API =============================
-
 def retrieve(
-    mode: Mode,
+    *,
+    mode,
     user_id: str,
     query: str,
-    attachment_ids: Sequence[str] | None,
-    k: int = 6,
+    attachment_ids: List[str] | None = None,
+    product_id: Optional[str] = None,
+    limit: int = 5,
+    fallback_to_global: bool = False,
 ) -> str:
+    # 1) product_id가 있으면: 그 상품으로만 검색
+    if product_id:
+        docs = vector_db.search_documents(query, product_id=product_id, limit=limit) or []
+        snippets = [(d.get("content") or d.get("text") or d.get("embed_input") or "").strip() for d in docs]
+        snippets = [s for s in snippets if s]
+        if snippets:
+            return "\n\n".join(snippets)
+        # 상품 스코프에서 못 찾았고, 전역 폴백을 허용한 경우
+        if fallback_to_global:
+            return _retrieve_global(mode=mode, user_id=user_id, query=query, attachment_ids=attachment_ids)
+        # 폴백 미허용이면 빈 컨텍스트 반환(상위에서 처리)
+        return ""
+
+    # 2) product_id가 없으면: 무조건 전역 검색으로
+    return _retrieve_global(mode=mode, user_id=user_id, query=query, attachment_ids=attachment_ids)
+
+def _retrieve_global(*, mode, user_id: str, query: str, attachment_ids: List[str] | None = None) -> str:
     """
     Auto-RAG 컨텍스트 생성기:
     - OpenSearch에서 스니펫 검색 → 10,000 토큰 한도로 컨텍스트 구성
@@ -231,11 +252,10 @@ def retrieve(
     - watsonx 미설치/오류 시, 컨텍스트 블록만 반환(파이프라인 유지)
     """
     try:
-        snippets = _search_snippets(query=query, k=k)
+        snippets = _search_snippets(query=query)
         context_block, _ = _fit_snippets_to_limit(
             snippets=snippets,
             user_query=query,
-            token_limit=4_000,
         )
         prompt = _rag_prompt(user_query=query, context_block=context_block)
         print("[RAG AUTO PROMPT END]\n" + prompt)
