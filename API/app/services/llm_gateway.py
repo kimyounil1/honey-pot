@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import os
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
@@ -74,4 +75,5 @@ def run_llm(messages: List[Dict[str, str]]) -> str:
 
 # chat.py는 async call_llm(...)을 호출하므로 간단 래퍼 제공
 async def call_llm(messages: List[Dict[str, str]]) -> str:
-    return run_llm(messages)
+    """Run the blocking LLM call in a thread to avoid blocking the event loop."""
+    return await asyncio.to_thread(run_llm, messages)

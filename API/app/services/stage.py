@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import UploadFile
@@ -16,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 async def _classify(user_text: str, attachment_ids: Optional[List[str]]) -> Tuple[Mode, Dict[str, Any], bool]:
-    decision = classify_with_llm(user_text, attachment_ids or [])
+    """Run the classification LLM in a thread so it doesn't block the event loop."""
+    decision = await asyncio.to_thread(classify_with_llm, user_text, attachment_ids or [])
     mode: Mode = decision.flow
     entities: Dict[str, Any] = decision.entities or {}
     use_retrieval: bool = bool(getattr(decision, "use_retrieval", False))
