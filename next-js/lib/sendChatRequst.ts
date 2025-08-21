@@ -2,7 +2,6 @@
 export async function sendChatRequest(message: any[], chatId?: number){
   const url = chatId ? `/api/chat/${chatId}` : `/api/chat`
     try {
-      // const response = await fetch('/api/chat', {
         const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

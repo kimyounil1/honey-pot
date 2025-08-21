@@ -21,9 +21,17 @@ class RAGResp(BaseModel):
 async def rag(req: RAGReq):
     t0 = time.time()
     mode = getattr(Mode, req.mode, Mode.TERMS)
-    rag_block = await retrieve(
-        mode=mode, user_id="rag-mini",
-        query=req.query, attachment_ids=[], k=req.k
+    # rag_block = await retrieve(
+    #     mode=mode, user_id="rag-mini",
+    #     query=req.query, attachment_ids=[], k=req.k
+    # )
+    rag_block = await asyncio.to_thread(
+        retrieve,
+        mode=mode,
+        user_id="rag-mini",
+        query=req.query,
+        attachment_ids=[],
+        k=req.k,
     )
     return RAGResp(
         ok=bool((rag_block or "").strip()),

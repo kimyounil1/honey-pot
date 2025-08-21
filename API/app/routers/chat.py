@@ -1,11 +1,14 @@
 # /API/app/routers/chat.py
 import logging
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 
 import json
+import asyncio
+from datetime import datetime
 from app.services.common import Mode
 from app.services import stage
 from app.services import llm_gateway
@@ -13,7 +16,7 @@ from app.schemas import userSchema, chatSchema
 
 from app.crud import chatCRUD
 from app.auth import deps
-from app.database import get_db
+from app.database import get_db, AsyncSessionLocal
 from app.services.state_update import process_assistant_message
 
 logger = logging.getLogger(__name__)
@@ -78,19 +81,34 @@ async def read_chat_messages(
     messages = await chatCRUD.get_messages(db, chat_id)
     return messages
 
+TIMEOUT_SECONDS = 1.0
 @router.get("/{chat_id}/messageState", response_model=chatSchema.MessageStateResponse)
-async def read_message_state(
-    chat_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: userSchema.UserRead = Depends(deps.get_current_user),
-):
-    chat = await chatCRUD.get_chat(db, chat_id)
-    if not chat:
-        raise HTTPException(status_code=404, detail="no chat")
-    elif (chat.user_id != current_user.user_id and current_user.user_id != 1):
-        raise HTTPException(status_code=403, detail="You do not have permission to access this chat.")
-    last_message = await chatCRUD.get_last_message(db, chat_id)
-    return chatSchema.MessageStateResponse(state=last_message.state)
+async def read_message_state(chat_id: int, current_user: userSchema.UserRead = Depends(deps.get_current_user)):
+    try:
+        # ✅ 별도 세션(짧게 열고 빨리 닫기). 기존 db 세션 대신 사용.
+        async with AsyncSessionLocal() as s:
+            # Postgres 기준: 읽기 전용 + 1s 쿼리 타임아웃
+
+            await s.execute(text("SET LOCAL statement_timeout = 1000"))
+            await s.execute(text("SET TRANSACTION READ ONLY"))
+
+            print("########### get_char 호출시작 ###########")
+            chat = await asyncio.wait_for(chatCRUD.get_chat(s, chat_id), timeout=TIMEOUT_SECONDS)
+            print("########### get_char 호출종료 ###########")
+            if not chat:
+                raise HTTPException(status_code=404, detail="no chat")
+            if (chat.user_id != current_user.user_id and current_user.user_id != 1):
+                raise HTTPException(status_code=403, detail="You do not have permission to access this chat.")
+
+            print("########### get_last_message 호출시작 ###########")
+            last_message = await asyncio.wait_for(chatCRUD.get_last_message(s, chat_id), timeout=TIMEOUT_SECONDS)
+            print("########### get_last_message 호출종료 ###########")
+
+        return chatSchema.MessageStateResponse(state=last_message.state)
+
+    except asyncio.TimeoutError:
+        # 폴링이므로 504로 빠르게 실패 → 클라가 0.3s 후 재시도
+        raise HTTPException(status_code=504, detail="messageState timed out (>1s)")
 
 @router.post("/ask")
 async def ask(

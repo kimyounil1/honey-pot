@@ -216,7 +216,7 @@ def _wx_generate_answer(prompt: str) -> str:
 
 # ============================= Public API =============================
 
-async def retrieve(
+def retrieve(
     mode: Mode,
     user_id: str,
     query: str,

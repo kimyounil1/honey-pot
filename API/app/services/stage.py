@@ -1,5 +1,6 @@
 import logging
 from typing import Any, Dict, List, Optional, Tuple
+import asyncio
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 async def _classify(user_text: str, attachment_ids: Optional[List[str]]) -> Tuple[Mode, Dict[str, Any], bool]:
-    decision = classify_with_llm(user_text, attachment_ids or [])
+    # decision = classify_with_llm(user_text, attachment_ids or [])
+    """Run the classification LLM in a thread so it doesn't block the event loop."""
+    decision = await asyncio.to_thread(classify_with_llm, user_text, attachment_ids or [])
     mode: Mode = decision.flow
     entities: Dict[str, Any] = decision.entities or {}
     use_retrieval: bool = bool(getattr(decision, "use_retrieval", False))
@@ -93,7 +96,14 @@ async def prepare_llm_request(
     # 5) (필요 시) RAG 보조
     rag_block = ""
     if use_retrieval and not db_hit and mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND):
-        rag_block = await retrieve(mode=mode, user_id=str(user_id), query=text, attachment_ids=att_ids)
+        # rag_block = await retrieve(mode=mode, user_id=str(user_id), query=text, attachment_ids=att_ids)
+        rag_block = await asyncio.to_thread(
+            retrieve,
+            mode=mode,
+            user_id=str(user_id),
+            query=text,
+            attachment_ids=att_ids,
+        )
 
     # 6) 메시지 빌드 (context 하나로 합치기)
     # 메세지 state 갱신 (building)

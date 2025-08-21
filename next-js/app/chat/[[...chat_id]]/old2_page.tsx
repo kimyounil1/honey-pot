@@ -78,72 +78,61 @@ export default function ChatPage() {
     failed: "에러 발생",
   };
 
-//   // chatId 변경 시 히스토리 로드
-//   useEffect(() => {
-//     if (chatId) {
-//         fetchChatHistory(chatId, { allowEmptyReplace: false });
-//     } else {
-//         setMessages([]);
-//     }
-//   }, [chatId]);
+  // chatId 변경 시 히스토리 로드
+  useEffect(() => {
+    if (chatId) {
+      fetchChatHistory(chatId);
+    } else {
+      setMessages([]);
+    }
+  }, [chatId]);
 
   // 상태 폴링
   useEffect(() => {
-  if (!chatId) return;
+    if (!chatId) return;
+    let active = true;
+    let controller: AbortController | null = null;
+    const tick = async () => {
+      if (!active) return;
+      try {
+        controller?.abort();
+        controller = new AbortController();
 
-  let active = true;
-  const controller = new AbortController(); // cleanup에서만 사용
+        const res = await fetch(`/api/chat/${chatId}/messageState?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        const data = await res.json();
+        setMessageState(data.state as MessageState);
 
-  const tick = async () => {
-    if (!active) return;
-    try {
-      const res = await fetch(`/api/chat/${chatId}/messageState?t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' },
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`API Error: ${res.status}`);
-      const data = await res.json();
-      setMessageState(data.state as MessageState);
-
-      if (data.state === 'done' || data.state === 'failed') {
-        await fetchChatHistory(chatId);
-        active = false; // 종료
+        if (data.state === 'done' || data.state === 'failed') {
+          await fetchChatHistory(chatId);
+          active = false;
+          return;
+        }
+      } catch (e: any) {
+        if (e?.name !== 'AbortError') console.error(e);
+        active = false;
         return;
       }
-    } catch (e: any) {
-      // AbortError면 종료하지 않음(대개 언마운트/전환 시 발생)
-      if (e?.name !== 'AbortError') {
-        console.error(e);
-        // 일시적 에러면 약간 대기 후 재시도
-      }
-    }
-
-    if (active) {
       setTimeout(tick, 300);
-    }
-  };
+    };
 
-  tick();
-
-  return () => {
-    active = false;
-    controller.abort(); // 여기서만 abort
-  };
-}, [chatId]);
-
+    tick();
+    return () => { active = false; controller?.abort(); };
+  }, [chatId]);
 
   // 상태가 done/failed로 바뀌면 서버에서 메시지 새로고침
   useEffect(() => {
     if(!chatId) return
-    // if(messageState === "done" || messageState === "failed"){
-    //   fetchChatHistory(chatId, { allowEmptyReplace: true });
-    // }
+    if(messageState === "done" || messageState === "failed"){
+      fetchChatHistory(chatId)
+    }
   }, [chatId, messageState])
 
-  const fetchChatHistory = async (id: number, opts: { allowEmptyReplace?: boolean } = {}) => {
-    const { allowEmptyReplace = true } = opts;
-    setIsLoading(true);
+  const fetchChatHistory = async (id: number) => {
     try{
       const response = await fetch(`/api/chat/${id}?t=${Date.now()}`, {
           cache: 'no-store',
@@ -154,10 +143,6 @@ export default function ChatPage() {
         return;
       }
       const historyData: Message[] = await response.json()
-      if (historyData.length === 0 && !allowEmptyReplace) {
-      // 진행 중(서버 히스토리 미기록)엔 로컬 플레이스홀더 유지
-        return;
-      }
       const messagesWithClientIds = historyData.map((message: any) => ({
         ...message,
         id: uuidv4()
@@ -166,7 +151,6 @@ export default function ChatPage() {
     } catch(error){
       console.error("Failed to fetch chat history: ", error)
     } finally {
-        setIsLoading(false)
     }
   }
 
@@ -182,7 +166,6 @@ export default function ChatPage() {
     const placeholderId = uuidv4();
     const assistantPlaceholder: Message = { id: placeholderId, role: 'assistant', content: '', };
     setMessages(prev => [...prev, userMessage, assistantPlaceholder]);
-    setMessages([{ id: uuidv4(), role: 'assistant', content: "임시", }])    
     setInput("");
     setIsLoading(true);
     setMessageState("commencing");
@@ -192,10 +175,11 @@ export default function ChatPage() {
 
       // 새 채팅이면 라우팅만 (상태는 route-param이 관리)
       if (response?.chat_id && !chatId) {
-        // const newChatId = response.chat_id;
+        const newChatId = response.chat_id;
         // 먼저 로컬에서 "임시 채팅 진행중" UI를 유지
-        router.push(`/chat/${response.chat_id}`);
+        router.push(`/chat/${newChatId}`);
         fetchChatSessions?.();
+        setIsLoading(false);
       }
 
       // 동기 응답(폴백 등)인 경우에는 바로 치환
@@ -211,7 +195,7 @@ export default function ChatPage() {
         : m));
       setMessageState("failed");
     } finally {
-      setIsLoading(false);
+      
     }
   };
 
@@ -265,7 +249,7 @@ export default function ChatPage() {
           const newChatId = response.chat_id;
           router.push(`/chat/${newChatId}`)
         }
-        // fetchChatSessions();
+        fetchChatSessions();
       } else if (response?.chat_id && chatId) {
         setMessages(prev => prev.filter(m => m.id !== placeholderId));
       } else {
@@ -420,10 +404,10 @@ export default function ChatPage() {
     // setHasActiveThread(false);
   }
 
-  const shouldShowWelcome = !chatId && messages.length === 0;
+  const shouldShowWelcome = messages.length === 0;
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div key={String(chatId ?? 'none')} className="flex h-screen bg-gray-50">
       {/* Sidebar */}
       <div
         className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 w-80 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col`}
@@ -629,68 +613,29 @@ export default function ChatPage() {
           ) : (
             // Chat message display
             <div className="max-w-3xl mx-auto space-y-4">
-                {messages.length === 0 && chatId && messageState !== "done" ? (
-                    <div className="flex justify-start">
-                    <div className="flex space-x-3 max-w-2xl">
-                        <Avatar className="w-8 h-8">
+              {messages.map((message) => (
+                <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
+                    <Avatar className="w-8 h-8">
+                      {message.role === "user" ? (
+                        <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
+                      ) : (
                         <AvatarImage src="/placeholder.svg?height=32&width=32" />
-                        </Avatar>
-                        <div className="rounded-lg px-4 py-2 bg-white border shadow-sm">
-                        <div className="whitespace-pre-wrap">
-                            {STATE_TEXT[messageState as NonDoneState]}
-                        </div>
-                        </div>
+                      )}
+                    </Avatar>
+                    <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
+                      <div className="whitespace-pre-wrap">
+                        {message.role === "assistant"
+                          ? (message.content === "" && messageState && messageState !== "done"
+                              ? STATE_TEXT[messageState as NonDoneState]
+                              : (message.content || "..."))
+                          : message.content}
+                      </div>
                     </div>
-                    </div>
-                ) : (
-                    messages.map((message) => (
-                        <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                            <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
-                            <Avatar className="w-8 h-8">
-                            {message.role === "user" ? (
-                                <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
-                            ) : (
-                                <AvatarImage src="/placeholder.svg?height=32&width=32" />
-                            )}
-                            </Avatar>
-                            <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
-                                <div className="whitespace-pre-wrap">
-                                    {message.role === "assistant"
-                                    ? (message.content === "" && messageState && messageState !== "done"
-                                        ? STATE_TEXT[messageState as NonDoneState]
-                                        : (message.content || "..."))
-                                    : message.content}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    ))
-                )}
+                  </div>
+                </div>
+              ))}
             </div>
-            // <div className="max-w-3xl mx-auto space-y-4">
-            //   {messages.map((message) => (
-            //     <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-            //       <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
-            //         <Avatar className="w-8 h-8">
-            //           {message.role === "user" ? (
-            //             <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
-            //           ) : (
-            //             <AvatarImage src="/placeholder.svg?height=32&width=32" />
-            //           )}
-            //         </Avatar>
-            //         <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
-            //           <div className="whitespace-pre-wrap">
-            //             {message.role === "assistant"
-            //               ? (message.content === "" && messageState && messageState !== "done"
-            //                   ? STATE_TEXT[messageState as NonDoneState]
-            //                   : (message.content || "..."))
-            //               : message.content}
-            //           </div>
-            //         </div>
-            //       </div>
-            //     </div>
-            //   ))}
-            // </div>
           )}
         </div>
 

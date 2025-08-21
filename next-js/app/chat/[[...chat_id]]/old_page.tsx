@@ -1,16 +1,20 @@
+// /next-js/app/chat/[[...chat_id]]/page.tsx
 "use client"
 
 import { useRouter, useParams } from "next/navigation"
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react" // Import useEffect
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, LogOut, ChevronDown, ChevronRight, ChevronUp, Droplet } from 'lucide-react'
+import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, Trash2, MoreVertical, Droplet, History, LogOut, ChevronDown, ChevronRight, ChevronUp } from 'lucide-react'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { sendChatRequest } from "@/lib/sendChatRequst"
 import { v4 as uuidv4 } from 'uuid'
+import Link from "next/link"
 import NewChatModal from "./new-chat-modal"
 import InsuranceCompanyModal from "./insurance-company-modal"
 import ProfileModal from "./profile-modal"
@@ -58,11 +62,8 @@ export default function ChatPage() {
 
   const router = useRouter();
   const params = useParams();
-
-  // ✅ Route-param 기반으로만 chatId 관리
-  const chatId: number | undefined = (params?.chat_id as string[] | undefined)?.[0]
-    ? Number((params.chat_id as string[])[0])
-    : undefined;
+  const chatId = params?.chat_id?.[0] ? Number(params.chat_id[0]) : undefined;
+  // const [chatId, setChatId] = useState<number | undefined>();
 
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -78,95 +79,84 @@ export default function ChatPage() {
     failed: "에러 발생",
   };
 
-//   // chatId 변경 시 히스토리 로드
-//   useEffect(() => {
-//     if (chatId) {
-//         fetchChatHistory(chatId, { allowEmptyReplace: false });
-//     } else {
-//         setMessages([]);
-//     }
-//   }, [chatId]);
-
-  // 상태 폴링
   useEffect(() => {
-  if (!chatId) return;
+    const paramChatIdArray = params?.chat_id as string[] | undefined;
+    const paramChatId = paramChatIdArray?.[0] ? Number(paramChatIdArray[0]) : undefined;
+    // setChatId(paramChatId);
+  }, [params?.chat_id]);
 
-  let active = true;
-  const controller = new AbortController(); // cleanup에서만 사용
+  useEffect(() => {
+    if (chatId) {
+      fetchChatHistory(chatId);
+    } else {
+      setMessages([]);
+    }
+  }, [chatId]);
 
-  const tick = async () => {
-    if (!active) return;
-    try {
-      const res = await fetch(`/api/chat/${chatId}/messageState?t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' },
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`API Error: ${res.status}`);
-      const data = await res.json();
-      setMessageState(data.state as MessageState);
+  useEffect(() => {
+    if (!chatId) return;
+    let active = true;
+    let controller: AbortController | null = null;
+    const tick = async () => {
+      if (!active) return;
+      try {
+        controller?.abort();
+        controller = new AbortController();
 
-      if (data.state === 'done' || data.state === 'failed') {
-        await fetchChatHistory(chatId);
-        active = false; // 종료
+        const res = await fetch(`/api/chat/${chatId}/messageState?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        const data = await res.json();
+        setMessageState(data.state as MessageState);
+
+        if (data.state === 'done' || data.state === 'failed') {
+          // 마지막 한 번 더 보강
+          await fetchChatHistory(chatId);
+          active = false;
+          return;
+        }
+      } catch (e) {
+        if ((e as any).name !== 'AbortError') console.error(e);
+        active = false;
         return;
       }
-    } catch (e: any) {
-      // AbortError면 종료하지 않음(대개 언마운트/전환 시 발생)
-      if (e?.name !== 'AbortError') {
-        console.error(e);
-        // 일시적 에러면 약간 대기 후 재시도
-      }
-    }
-
-    if (active) {
+      // 다음 틱 예약
       setTimeout(tick, 300);
-    }
-  };
+    };
 
-  tick();
-
-  return () => {
-    active = false;
-    controller.abort(); // 여기서만 abort
-  };
-}, [chatId]);
-
+    tick();
+    return () => { active = false; controller?.abort(); };
+  }, [chatId]);
 
   // 상태가 done/failed로 바뀌면 서버에서 메시지 새로고침
   useEffect(() => {
     if(!chatId) return
-    // if(messageState === "done" || messageState === "failed"){
-    //   fetchChatHistory(chatId, { allowEmptyReplace: true });
-    // }
+    if(messageState === "done" || messageState === "failed"){
+      fetchChatHistory(chatId)
+    }
   }, [chatId, messageState])
 
-  const fetchChatHistory = async (id: number, opts: { allowEmptyReplace?: boolean } = {}) => {
-    const { allowEmptyReplace = true } = opts;
-    setIsLoading(true);
+  const fetchChatHistory = async (id: number) => {
+    setIsLoading(true)
     try{
       const response = await fetch(`/api/chat/${id}?t=${Date.now()}`, {
           cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache' },
       })
       if(!response.ok){
-        console.error("Failed to fetch chat history", response.status);
+        console.error("Chat history fetch failed", response.status)
+        // router.push('/chat')
         return;
       }
       const historyData: Message[] = await response.json()
-      if (historyData.length === 0 && !allowEmptyReplace) {
-      // 진행 중(서버 히스토리 미기록)엔 로컬 플레이스홀더 유지
-        return;
-      }
-      const messagesWithClientIds = historyData.map((message: any) => ({
-        ...message,
-        id: uuidv4()
-      }));
-      setMessages(messagesWithClientIds)
+      setMessages(historyData.map((m: any) => ({ ...m, id: uuidv4() })));
     } catch(error){
       console.error("Failed to fetch chat history: ", error)
     } finally {
-        setIsLoading(false)
+      setIsLoading(false)
     }
   }
 
@@ -182,24 +172,27 @@ export default function ChatPage() {
     const placeholderId = uuidv4();
     const assistantPlaceholder: Message = { id: placeholderId, role: 'assistant', content: '', };
     setMessages(prev => [...prev, userMessage, assistantPlaceholder]);
-    setMessages([{ id: uuidv4(), role: 'assistant', content: "임시", }])    
     setInput("");
     setIsLoading(true);
+
     setMessageState("commencing");
 
     try {
       const response = await sendChatRequest([...messages, userMessage], chatId);
 
-      // 새 채팅이면 라우팅만 (상태는 route-param이 관리)
+      // 새 채팅이면 라우팅
       if (response?.chat_id && !chatId) {
-        // const newChatId = response.chat_id;
-        // 먼저 로컬에서 "임시 채팅 진행중" UI를 유지
         router.push(`/chat/${response.chat_id}`);
+        // const newChatId = response.chat_id;
+        // // setChatId(newChatId);
+        // router.push(`/chat/${newChatId}`);
         fetchChatSessions?.();
       }
 
-      // 동기 응답(폴백 등)인 경우에는 바로 치환
+      // 백그라운드 처리라면 여기서 answer가 없을 수 있음 → placeholder는 그대로 두고,
+      // 위의 useEffect( messageState === 'done' )가 최종 본문을 fetch해서 치환하게 둠.
       if (response?.answer) {
+        // 동기 응답(폴백 등)인 경우에는 바로 치환
         setMessages(prev => prev.map(m => m.id === placeholderId
           ? { id: placeholderId, role: "assistant", content: response.answer }
           : m));
@@ -214,6 +207,45 @@ export default function ChatPage() {
       setIsLoading(false);
     }
   };
+  //   try {
+  //     const response = await sendChatRequest([...messages, userMessage], chatId);
+
+  //     if (response && response.answer) {
+  //       const assistantMessage: Message = {
+  //         id: placeholderId,
+  //         role: 'assistant',
+  //         content: response.answer,
+  //       };
+  //       setMessages((prev) => prev.map(m => m.id === placeholderId ? assistantMessage : m));
+
+  //       if (response.chat_id && !chatId) {
+  //         const newChatId = response.chat_id;
+  //         setChatId(newChatId);
+  //         window.history.pushState(null, '', `/chat/${newChatId}`);
+  //         fetchChatSessions();
+  //       }
+  //     } else if (response.chat_id && chatId) {
+  //       setMessages(prev => prev.filter(m => m.id !== placeholderId));
+  //     } else {
+  //       const errorMessage: Message = {
+  //         id: placeholderId,
+  //         role: 'assistant',
+  //         content: response.error || '오류가 발생했습니다.',
+  //       };
+  //       setMessages((prev) => prev.map(m => m.id === placeholderId ? errorMessage : m));
+  //     }
+  //   } catch (error) {
+  //     console.error("Error in handleSubmit: ", error);
+  //     const errorMessage: Message = {
+  //       id: placeholderId,
+  //       role: 'assistant',
+  //       content: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+  //     };
+  //     setMessages((prev) => prev.map(m => m.id === placeholderId ? errorMessage : m));
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // }
 
   const [showChatHistory, setShowChatHistory] = useState(true)
   const [myInsuranceCompleted, setMyInsuranceCompleted] = useState(false)
@@ -263,16 +295,17 @@ export default function ChatPage() {
 
         if (response.chat_id && !chatId) {
           const newChatId = response.chat_id;
+          // setChatId(newChatId);
           router.push(`/chat/${newChatId}`)
         }
-        // fetchChatSessions();
-      } else if (response?.chat_id && chatId) {
+        fetchChatSessions();
+      } else if (response.chat_id && chatId) {
         setMessages(prev => prev.filter(m => m.id !== placeholderId));
       } else {
         const errorMessage: Message = {
           id: placeholderId,
           role: 'assistant',
-          content: response?.error || '오류가 발생했습니다.',
+          content: response.error || '오류가 발생했습니다.',
         };
         setMessages((prev) => prev.map(m => m.id === placeholderId ? errorMessage : m));
       }
@@ -299,6 +332,7 @@ export default function ChatPage() {
         return;
       }
       const data = await response.json();
+      console.log(data)
       const formattedSessions: ChatSession[] = data.map((chat: any) => {
         let type: string[] = [];
         if (Array.isArray(chat.type)) {
@@ -306,6 +340,18 @@ export default function ChatPage() {
         } else if (typeof chat.type === 'string'){
           type = chat.type.split(',').map((s: string) => s.trim())
         }
+        // } else if (typeof chat.type === 'string' && chat.type) {
+        //   if (chat.type.startsWith('[') && chat.type.endsWith(']')) {
+        //     try {
+        //       type = JSON.parse(chat.type);
+        //     } catch (e) {
+        //       console.error("Failed to parse chat.type JSON string:", chat.type, e);
+        //       type = [];
+        //     }
+        //   } else {
+        //     type = chat.type.split(',').map((s: string) => s.trim()).filter(Boolean);
+        //   }
+        // }
         return {
           id: chat.id,
           title: chat.title,
@@ -320,6 +366,7 @@ export default function ChatPage() {
   };
 
   useEffect(() => {
+    // Fetch chat history when the history panel is opened
     if (showChatHistory) {
         fetchChatSessions();
     }
@@ -340,12 +387,14 @@ export default function ChatPage() {
   }
 
   const handlePolicyAnalysis = (files: File[], textInput?: string) => {
+    console.log("보험 약관 분석 시작:", files.map(f => f.name), textInput)
     const fileNames = files.map(f => f.name).join(', ')
     const message = textInput ? `내 보험 증권 분석을 요청합니다. 내용: ${textInput}` : `내 보험 증권 분석을 요청합니다. 파일: ${fileNames}`
     handleStartChatFromModal("analysis", "보험 약관 분석 요청", message)
   }
 
   const handleRefundAnalysis = (medicalCertificate: File | null, detailedBill: File | null, textInput?: string) => {
+    console.log("환급금 분석 시작:", medicalCertificate?.name, detailedBill?.name, textInput)
     let message = textInput || ""
     if (medicalCertificate && detailedBill) {
       message += `\n진료확인서(${medicalCertificate?.name})와 진료비 세부 내역서(${detailedBill?.name})도 첨부합니다.`
@@ -354,6 +403,7 @@ export default function ChatPage() {
   }
 
   const handleRecommendationComplete = (recommendationType: string) => {
+    console.log("보험 추천 완료:", recommendationType)
     handleStartChatFromModal("general", `보험 추천 (${recommendationType})`, `"${recommendationType}"에 대한 보험 추천을 완료했습니다. 결과에 대해 더 궁금한 점이 있습니다.`)
   }
 
@@ -371,6 +421,26 @@ export default function ChatPage() {
   ];
 
   const displayedQuestions = showAllQuickQuestions ? quickStartQuestions : quickStartQuestions.slice(0, 4);
+
+  const handleFeatureClick = (feature: string) => {
+    console.log(`Feature clicked: ${feature}, myInsuranceCompleted: ${myInsuranceCompleted}`);
+    switch (feature) {
+      case '나의 보험':
+        setShowInsuranceModal(true);
+        break;
+      case '내 보험 약관 분석':
+        setShowPolicyAnalysisModal(true);
+        break;
+      case '환급금 찾기':
+        setShowRefundFinderModal(true);
+        break;
+      case '보험 추천':
+        setShowRecommendationModal(true);
+        break;
+      default:
+        console.log(`${feature} 기능 시작`);
+    }
+  };
 
   const formatTimestamp = (timestamp: Date) => {
     const now = new Date()
@@ -416,14 +486,12 @@ export default function ChatPage() {
 
   const resetToHome = () => {
     router.push('/chat');
+    // setChatId(undefined);
     setMessages([]);
-    // setHasActiveThread(false);
   }
-
-  const shouldShowWelcome = !chatId && messages.length === 0;
-
+  // console.log('Current Messages State:', JSON.stringify(messages, null, 2));
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div key={String(chatId ?? 'none')} className="flex h-screen bg-gray-50">
       {/* Sidebar */}
       <div
         className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 w-80 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col`}
@@ -452,19 +520,19 @@ export default function ChatPage() {
         </div>
 
         <nav className="px-4 space-y-2">
-          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowInsuranceModal(true)}> 
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('나의 보험')}> 
             <User className="mr-3 h-4 w-4 text-gray-800" />
             나의 보험
           </Button>
-          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowPolicyAnalysisModal(true)}> 
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('내 보험 약관 분석')}> 
             <FileText className="mr-3 h-4 w-4 text-blue-600" />
             내 보험 약관 분석
           </Button>
-          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowRefundFinderModal(true)}> 
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('환급금 찾기')}> 
             <TrendingUp className="mr-3 h-4 w-4 text-green-600" />
             환급금 찾기
           </Button>
-          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowRecommendationModal(true)}> 
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => handleFeatureClick('보험 추천')}> 
             <Shield className="mr-3 h-4 w-4 text-purple-600" />
             보험 추천
           </Button>
@@ -484,7 +552,7 @@ export default function ChatPage() {
         </nav>
 
         {showChatHistory && (
-          <div className="px-4 mt-6 flex-1 flex-col hidden lg:flex">
+          <div className="px-4 mt-6 flex-1 flex flex-col">
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input placeholder="채팅 검색" className="pl-10" />
@@ -499,22 +567,27 @@ export default function ChatPage() {
                     className={`p-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-50 ${ 
                       chatId === chat.id ? "bg-yellow-50 border border-yellow-200" : "bg-white border"
                     }`}
-                    onClick={() => router.push(`/chat/${chat.id}`)}
+                    onClick={() => handleSelectChat(chat.id)}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center space-x-2 mb-1">
                           <h4 className="text-sm font-medium truncate">{chat.title}</h4>
                           <div className="flex items-center space-x-1 flex-wrap gap-y-1">
-                            {(chat.type?.length ? chat.type : ["default"]).map((t) => (
-                              <Badge key={t} className={`text-xs ${getChatTypeColor(t)}`}>{getChatTypeName(t)}</Badge>
-                            ))}
+                            {chat.type && chat.type.length > 0 ? (
+                              chat.type.map((t) => (
+                                <Badge key={t} className={`text-xs ${getChatTypeColor(t)}`}>{getChatTypeName(t)}</Badge>
+                              ))
+                            ) : (
+                              <Badge className={`text-xs ${getChatTypeColor('default')}`}>{getChatTypeName('default')}</Badge>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-xs text-gray-400">{formatTimestamp(chat.timestamp)}</span>
                         </div>
                       </div>
+                      {/* TODO: Add delete functionality later */}
                     </div>
                   </div>
                 ))}
@@ -548,7 +621,7 @@ export default function ChatPage() {
             <Button 
               variant="outline" 
               className="text-red-600 border-red-600 hover:bg-red-50 px-3 py-1 text-sm h-auto"
-              onClick={async () => { await fetch("/api/logout"); router.push("/"); }}
+              onClick={handleLogout}
             >
               <LogOut className="mr-2 h-4 w-4" />
               로그아웃
@@ -557,7 +630,7 @@ export default function ChatPage() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 bg-gradient-to-br from-orange-50 via-yellow-50 to-orange-100">
-          {shouldShowWelcome ? (
+          {messages.length === 0 ? (
             <div className="max-w-4xl mx-auto space-y-6">
               {/* Welcome Card */}
               <Card className="text-center p-8 bg-white shadow-lg rounded-xl">
@@ -572,7 +645,7 @@ export default function ChatPage() {
                     보험의 모든걸 손쉬운 꿀통 채팅으로
                   </p>
                   <div className="grid grid-cols-2 gap-3 w-full">
-                    {displayedQuestions.map((question) => (
+                    {displayedQuestions.map((question, index) => (
                       <Button
                         key={question}
                         variant="outline"
@@ -590,18 +663,25 @@ export default function ChatPage() {
                       onClick={() => setShowAllQuickQuestions(!showAllQuickQuestions)}
                     >
                       {showAllQuickQuestions ? (
-                        <>접기 <ChevronUp className="ml-2 h-4 w-4" /></>
+                        <>
+                          접기 <ChevronUp className="ml-2 h-4 w-4" />
+                        </>
                       ) : (
-                        <>더보기 <ChevronDown className="ml-2 h-4 w-4" /></>
+                        <>
+                          더보기 <ChevronDown className="ml-2 h-4 w-4" />
+                        </>
                       )}
                     </Button>
                   )}
                 </CardContent>
               </Card>
 
-              {/* Feature Cards */}
+              {/* Feature Cards - 3개 박스 */}
               <div className="grid md:grid-cols-3 gap-6">
-                <Card className="text-center cursor-pointer hover:shadow-lg transition-all duration-300" onClick={() => setShowPolicyAnalysisModal(true)}>
+                <Card
+                  className="text-center cursor-pointer hover:shadow-lg transition-all duration-300"
+                  onClick={() => handleFeatureClick('내 보험 약관 분석')}
+                >
                   <CardContent className="pt-6">
                     <FileText className="h-12 w-12 text-blue-500 mx-auto mb-4" />
                     <h3 className="font-semibold mb-2">보험 약관 분석</h3>
@@ -609,7 +689,10 @@ export default function ChatPage() {
                   </CardContent>
                 </Card>
 
-                <Card className="text-center cursor-pointer hover:shadow-lg transition-all duration-300" onClick={() => setShowRefundFinderModal(true)}>
+                <Card
+                  className="text-center cursor-pointer hover:shadow-lg transition-all duration-300"
+                  onClick={() => handleFeatureClick('환급금 찾기')}
+                >
                   <CardContent className="pt-6">
                     <TrendingUp className="h-12 w-12 text-green-500 mx-auto mb-4" />
                     <h3 className="font-semibold mb-2">환급금 찾기</h3>
@@ -617,7 +700,10 @@ export default function ChatPage() {
                   </CardContent>
                 </Card>
 
-                <Card className="text-center cursor-pointer hover:shadow-lg transition-all duration-300" onClick={() => setShowRecommendationModal(true)}>
+                <Card
+                  className="text-center cursor-pointer hover:shadow-lg transition-all duration-300"
+                  onClick={() => handleFeatureClick('보험 추천')}
+                >
                   <CardContent className="pt-6">
                     <Shield className="h-12 w-12 text-purple-500 mx-auto mb-4" />
                     <h3 className="font-semibold mb-2">보험 추천</h3>
@@ -629,72 +715,50 @@ export default function ChatPage() {
           ) : (
             // Chat message display
             <div className="max-w-3xl mx-auto space-y-4">
-                {messages.length === 0 && chatId && messageState !== "done" ? (
-                    <div className="flex justify-start">
-                    <div className="flex space-x-3 max-w-2xl">
-                        <Avatar className="w-8 h-8">
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={`flex space-x-3 max-w-2xl ${
+                      message.role === "user" ? "flex-row-reverse space-x-reverse" : ""
+                    }`}
+                  >
+                    <Avatar className="w-8 h-8">
+                      {message.role === "user" ? (
+                        <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
+                      ) : (
                         <AvatarImage src="/placeholder.svg?height=32&width=32" />
-                        </Avatar>
-                        <div className="rounded-lg px-4 py-2 bg-white border shadow-sm">
-                        <div className="whitespace-pre-wrap">
-                            {STATE_TEXT[messageState as NonDoneState]}
-                        </div>
-                        </div>
+                      )}
+                    </Avatar>
+                    <div
+                      className={`rounded-lg px-4 py-2 ${
+                        message.role === "user"
+                          ? "bg-blue-500 text-white"
+                          : "bg-white border shadow-sm"
+                      }`}
+                    >
+                      <div className="whitespace-pre-wrap">
+                        {message.role === "assistant" ? (
+                          // 본문이 비어있는 메시지(placeholder)에만 상태 문구를 표시
+                          message.content === "" && messageState && messageState !== "done"
+                            ? STATE_TEXT[messageState as NonDoneState]
+                            : (message.content || "...") // 완료되면 본문, 없으면 최소 표시
+                        ) : (
+                          message.content
+                        )}
+                      </div>
                     </div>
-                    </div>
-                ) : (
-                    messages.map((message) => (
-                        <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                            <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
-                            <Avatar className="w-8 h-8">
-                            {message.role === "user" ? (
-                                <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
-                            ) : (
-                                <AvatarImage src="/placeholder.svg?height=32&width=32" />
-                            )}
-                            </Avatar>
-                            <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
-                                <div className="whitespace-pre-wrap">
-                                    {message.role === "assistant"
-                                    ? (message.content === "" && messageState && messageState !== "done"
-                                        ? STATE_TEXT[messageState as NonDoneState]
-                                        : (message.content || "..."))
-                                    : message.content}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    ))
-                )}
+                  </div>
+                </div>
+              ))}
             </div>
-            // <div className="max-w-3xl mx-auto space-y-4">
-            //   {messages.map((message) => (
-            //     <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-            //       <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
-            //         <Avatar className="w-8 h-8">
-            //           {message.role === "user" ? (
-            //             <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
-            //           ) : (
-            //             <AvatarImage src="/placeholder.svg?height=32&width=32" />
-            //           )}
-            //         </Avatar>
-            //         <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
-            //           <div className="whitespace-pre-wrap">
-            //             {message.role === "assistant"
-            //               ? (message.content === "" && messageState && messageState !== "done"
-            //                   ? STATE_TEXT[messageState as NonDoneState]
-            //                   : (message.content || "..."))
-            //               : message.content}
-            //           </div>
-            //         </div>
-            //       </div>
-            //     </div>
-            //   ))}
-            // </div>
           )}
         </div>
 
         <div className="border-t bg-white p-4">
+          
           <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
             <div className="flex space-x-4">
               <Input
@@ -723,19 +787,49 @@ export default function ChatPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Modals */}
-      <NewChatModal isOpen={showNewChatModal} onClose={() => setShowNewChatModal(false)} onStartChat={handleStartChatFromModal} />
-      <InsuranceCompanyModal isOpen={showInsuranceModal} onClose={() => setShowInsuranceModal(false)} onComplete={(c) => { setShowInsuranceModal(false); if (c) setSelectedInsuranceCompanies(c); }} initialSelectedCompanies={selectedInsuranceCompanies} onStartChat={handleStartChatFromModal} />
-      <ProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
-      <FAQModal isOpen={showFAQModal} onClose={() => setShowFAQModal(false)} onSelectQuestion={handleFAQSelect} />
-      <PolicyAnalysisModal isOpen={showPolicyAnalysisModal} onClose={() => setShowPolicyAnalysisModal(false)} onAnalyze={(files, text) => handlePolicyAnalysis(files, text)} />
-      <RefundFinderModal isOpen={showRefundFinderModal} onClose={() => setShowRefundFinderModal(false)} onAnalyze={(mc, db, text) => handleRefundAnalysis(mc, db, text)} />
-      <RecommendationModal isOpen={showRecommendationModal} onClose={() => setShowRecommendationModal(false)} onComplete={handleRecommendationComplete} selectedCompanies={selectedInsuranceCompanies} />
+      <NewChatModal
+        isOpen={showNewChatModal}
+        onClose={() => setShowNewChatModal(false)}
+        onStartChat={handleStartChatFromModal}
+      />
 
-      {/* 🔎 Tiny debug overlay (삭제해도 됩니다)
-      <div className="fixed bottom-2 right-2 text-[11px] bg-black/70 text-white px-2 py-1 rounded shadow z-50 select-none">
-        chatId: {String(chatId ?? 'none')} | msgs: {messages.length} | active:{String(hasActiveThread)} | state:{messageState}
-      </div> */}
+      <InsuranceCompanyModal
+        isOpen={showInsuranceModal}
+        onClose={() => setShowInsuranceModal(false)}
+        onComplete={handleInsuranceCompanyComplete}
+        initialSelectedCompanies={selectedInsuranceCompanies}
+        onStartChat={handleStartChatFromModal}
+      />
+
+      <ProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+      />
+
+      <FAQModal
+        isOpen={showFAQModal}
+        onClose={() => setShowFAQModal(false)}
+        onSelectQuestion={handleFAQSelect}
+      />
+
+      <PolicyAnalysisModal
+        isOpen={showPolicyAnalysisModal}
+        onClose={() => setShowPolicyAnalysisModal(false)}
+        onAnalyze={handlePolicyAnalysis}
+      />
+
+      <RefundFinderModal
+        isOpen={showRefundFinderModal}
+        onClose={() => setShowRefundFinderModal(false)}
+        onAnalyze={handleRefundAnalysis}
+      />
+
+      <RecommendationModal
+        isOpen={showRecommendationModal}
+        onClose={() => setShowRecommendationModal(false)}
+        onComplete={handleRecommendationComplete}
+        selectedCompanies={selectedInsuranceCompanies}
+      />
     </div>
   )
 }
