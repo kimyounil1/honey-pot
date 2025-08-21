@@ -74,7 +74,6 @@ async def prepare_llm_request(
     # 4) (필요 시) RAG 보조
     rag_parts: List[str] = []
     if use_retrieval and not db_hit and mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND):
-        product_id = (entities or {}).get("product_id") or (entities or {}).get("product_code")
         os_block = await asyncio.to_thread(
             retrieve,
             mode=mode,

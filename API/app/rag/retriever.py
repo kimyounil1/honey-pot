@@ -1,8 +1,6 @@
 # app/rag/retriever.py
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
-
-from app.services import vector_db  # OpenSearch client (assumed existing)
 import os
 import logging
 import boto3
@@ -42,21 +40,55 @@ def _trim(s: str, n: int = 120) -> str:
     s = (s or "").replace("\n", " ").strip()
     return (s[:n] + "…") if len(s) > n else s
 
-def _search_snippets(query: str, k: int = 8) -> List[Dict[str, Any]]:
+def _search_snippets(query: str, k: int = 8, policy_id: Optional[str] = None) -> List[Dict[str, Any]]:
     index = getattr(settings, "OPENSEARCH_INDEX", None)
 
-    body = {
-        "size": max(1, min(k, 20)),
-        "query": {
-            "multi_match": {
-                "query": query,
-                "fields": ["section_title^2", "content"],
-                "type": "best_fields",
-                "tie_breaker": 0.2
+    if policy_id:
+        filter_block = [{
+            "bool": {
+                "should": [
+                    {"term": {"policy_id": policy_id}}
+                ]
             }
-        },
-        "_source": True,
-    }
+        }]
+
+        must_block: List[Dict[str, Any]] = []
+        if (query or "").strip():
+            must_block.append({
+                "multi_match": {
+                    "query": query,
+                    "fields": ["content^2", "section_title", "embed_input", "text"],
+                    "type": "best_fields",
+                    "operator": "or",
+                }
+            })
+        else:
+            must_block.append({"match_all": {}})
+
+        body: Dict[str, Any] = {
+            "size": max(1, min(k, 20)),
+            "query": {
+                "bool": {
+                    "filter": filter_block,
+                    "must": must_block,
+                }
+            },
+            "_source": True,
+        }
+    else:
+        body = {
+            "size": max(1, min(k, 20)),
+            "query": {
+                "multi_match": {
+                    "query": query,
+                    "fields": ["section_title^2", "content"],
+                    "type": "best_fields",
+                    "tie_breaker": 0.2
+                }
+            },
+            "_source": True,
+        }
+
     resp = _os_client().search(index=index, body=body)
 
     # total 파싱(버전에 따라 dict/int 혼재)
@@ -227,32 +259,11 @@ def retrieve(
     limit: int = 5,
     fallback_to_global: bool = False,
 ) -> str:
-    # 1) product_id가 있으면: 그 상품으로만 검색
-    if product_id:
-        docs = vector_db.search_documents(query, product_id=product_id, limit=limit) or []
-        snippets = [(d.get("content") or d.get("text") or d.get("embed_input") or "").strip() for d in docs]
-        snippets = [s for s in snippets if s]
-        if snippets:
-            return "\n\n".join(snippets)
-        # 상품 스코프에서 못 찾았고, 전역 폴백을 허용한 경우
-        if fallback_to_global:
-            return _retrieve_global(mode=mode, user_id=user_id, query=query, attachment_ids=attachment_ids)
-        # 폴백 미허용이면 빈 컨텍스트 반환(상위에서 처리)
-        return ""
-
-    # 2) product_id가 없으면: 무조건 전역 검색으로
-    return _retrieve_global(mode=mode, user_id=user_id, query=query, attachment_ids=attachment_ids)
-
-def _retrieve_global(*, mode, user_id: str, query: str, attachment_ids: List[str] | None = None) -> str:
-    """
-    Auto-RAG 컨텍스트 생성기:
-    - OpenSearch에서 스니펫 검색 → 10,000 토큰 한도로 컨텍스트 구성
-    - watsonx가 해당 컨텍스트만으로 초안 답변 생성
-    - 생성된 초안 답변을 '[RAG AUTO ANSWER]' 블록으로 반환
-    - watsonx 미설치/오류 시, 컨텍스트 블록만 반환(파이프라인 유지)
-    """
     try:
-        snippets = _search_snippets(query=query)
+        if product_id:
+            snippets = _search_snippets(query=query, k=limit, policy_id=product_id)
+        else:
+            snippets = _search_snippets(query=query, k=limit)
         context_block, _ = _fit_snippets_to_limit(
             snippets=snippets,
             user_query=query,
@@ -271,7 +282,6 @@ def _retrieve_global(*, mode, user_id: str, query: str, attachment_ids: List[str
     except Exception as e:
         logger.exception("retrieve failed: %s", e)
         return ""
-
 #
 from typing import Dict, Any
 
