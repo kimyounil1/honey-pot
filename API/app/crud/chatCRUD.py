@@ -1,10 +1,12 @@
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import datetime
+import logging
 
 from app.models import chatModel, userModel
-
 from app.schemas import userSchema, chatSchema
+
+logger = logging.getLogger(__name__)
 
 # ========================================
 # ================ CREATE ================
@@ -62,7 +64,7 @@ async def get_messages(db:AsyncSession, chat_id: int):
 # 특정 chat_id에 대해 가장 마지막 어시스턴트 메세지 불러오기
 async def get_last_message(db: AsyncSession, chat_id: int):
     result = await db.execute(
-        select(chatModel.Message).where(chatModel.Message.chat_id == chat_id).order_by(chatModel.Message.created_at.desc())
+        select(chatModel.Message).where(chatModel.Message.chat_id == chat_id, chatModel.Message.role == "assistant").order_by(chatModel.Message.created_at.desc())
     )
     return result.scalars().first()
 
@@ -109,6 +111,7 @@ async def update_message_state(db: AsyncSession, chat_id:int, message_state: str
         message.state = message_state
         await db.commit()
         await db.refresh(message)
+    logger.info("[STATE] chat=%s -> %s", chat_id, message_state)
     return message
 
 # LLM 응답 갱신

@@ -1,6 +1,6 @@
-# /API/app/routers/chat.py
+# app/routers/chat.py
 import logging
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
@@ -14,7 +14,6 @@ from app.schemas import userSchema, chatSchema
 from app.crud import chatCRUD
 from app.auth import deps
 from app.database import get_db
-from app.services.state_update import process_assistant_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(deps.get_current_user)])
@@ -94,7 +93,6 @@ async def read_message_state(
 
 @router.post("/ask")
 async def ask(
-    background_tasks: BackgroundTasks,
     form_data: AskBody = Depends(AskBody.as_form),
     current_user: userSchema.UserRead = Depends(deps.get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -102,62 +100,103 @@ async def ask(
     body = form_data
     file = form_data.file
     try:
-        # 1) 채팅 시작 시 create_chat
+        # 1단계: 채팅의 시작일 경우 create_chat 호출
         if not body.chat_id:
             newChat = await chatCRUD.create_chat(
                 db,
                 chatSchema.NewChat(
-                    user_id=current_user.user_id,
+                    user_id = current_user.user_id,
                     title=body.text[:30],
-                ),
+                )
             )
+            # 채팅의 시작일 경우 chat_id를 받아옴
             chat_id = newChat.id
         else:
             chat_id = body.chat_id
 
-        # 2) user 메시지 즉시 저장
+        # 2단계: 사용자 메세지는 항상 즉시 저장
         await chatCRUD.create_message(
             db,
             chatSchema.Message(
-                chat_id=chat_id,
+                chat_id = chat_id,
                 role="user",
                 content=body.text,
                 type="general",
-                state="done",
-            ),
+                state="done"
+            )
         )
 
-        # 3) 비어있는 assistant 메시지(commencing) 저장
+        # 3-1단계: 비어있는 어시스턴트 메세지 저장
         await chatCRUD.create_message(
             db,
             chatSchema.Message(
-                chat_id=chat_id,
+                chat_id = chat_id,
                 role="assistant",
                 content="",
                 type="",
                 state="commencing",
             )
         )
-        await db.commit()
-
-        # 4) 백그라운드 태스크로 LLM 처리 예약
-        background_tasks.add_task(
-            process_assistant_message,
-            chat_id,
-            current_user.user_id,
-            body.text,
-            body.attachment_ids,
-            file,
-            # db
+        # 3-2단계: Stage에서 준비(폴백→OCR→DB→RAG→메시지)
+        prep = await stage.prepare_llm_request(
+            db=db,
+            user_id=current_user.user_id,
+            text=body.text,
+            attachment_ids=body.attachment_ids or [],
+            file=file,  # - OCR은 stage에서 처리
+            chat_id=chat_id,
         )
+        mode = prep["mode"]
+        mode_str = getattr(mode, "name", str(mode))   # Enum 대응
+        attachments_used = prep.get("attachments_used", [])
+        static_answer = prep.get("static_answer") or ""
+        # 모드가 확정되면 메세지에 type을 추가
+        await chatCRUD.update_message_type(db, chat_id, mode_str)
+        
+        # 4단계: 폴백이면 정적 답 저장 후 즉시 반환
+        if static_answer:
+            answer = static_answer.get("answer") if isinstance(static_answer, dict) else static_answer
+            await chatCRUD.create_message(
+                db,
+                chatSchema.Message(
+                    chat_id=chat_id,
+                    role="assistant",
+                    content=answer,
+                    type=mode_str,
+                    state="done"
+                ),
+            )
+            logger.info("[ROUTER] FALLBACK. mode=%s, used_attachments=%s", mode_str, attachments_used)
+            return {
+                "ok": True,
+                "answer": answer,
+                "mode": mode_str,
+                "used_attachments": attachments_used,
+                "chat_id": chat_id,
+            }
 
-        # 5) 즉시 응답 반환
+        # 5-1단계: LLM 호출(폴백이 아닌 경우) 
+        messages = prep["messages"]
+        logger.info("[ROUTER] Calling LLM. mode=%s, messages_len=%d", mode_str, len(messages))
+        answer = await llm_gateway.call_llm(messages)
+        # 메세지에 content을 추가
+        await chatCRUD.update_message_content(db, chat_id, answer)
+        # 메세지 state 갱신 (searching)
+        try:
+            await chatCRUD.update_message_state(db, chat_id, "done")
+        except Exception as e:
+            await chatCRUD.update_message_state(db, chat_id, "failed")
+            raise
+
+        logger.info("[ROUTER] LLM done. mode=%s, used_attachments=%s", mode_str, attachments_used)
         return {
             "ok": True,
+            "answer": answer,
+            "mode": mode_str,
+            "used_attachments": attachments_used,
             "chat_id": chat_id,
-            "message": "Assistant message processing started"
         }
-
+    
     except HTTPException:
         raise
     except Exception as e:
