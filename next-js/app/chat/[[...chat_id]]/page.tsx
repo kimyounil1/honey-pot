@@ -59,7 +59,7 @@ export default function ChatPage() {
   const router = useRouter();
   const params = useParams();
 
-  // ✅ Route-param 기반으로만 chatId 관리
+  // Route-param 기반으로만 chatId 관리
   const chatId: number | undefined = (params?.chat_id as string[] | undefined)?.[0]
     ? Number((params.chat_id as string[])[0])
     : undefined;
@@ -70,10 +70,10 @@ export default function ChatPage() {
   const [messageState, setMessageState] = useState<MessageState>("commencing")
 
   const STATE_TEXT: Record<NonDoneState, string> = {
-    commencing: "메세지 전송중...",
+    commencing: "...",
     classifying: "메세지를 분류중입니다...",
     analyzing: "제공하신 자료를 분석중입니다...",
-    searching: "자료를 바탕으로 결과를 분석중입니다...",
+    searching: "데이터를 바탕으로 결과를 분석중입니다...",
     building: "응답을 받아오는 중...",
     failed: "에러 발생",
   };
@@ -89,35 +89,35 @@ export default function ChatPage() {
 
   // 상태 폴링
   useEffect(() => {
-  if (!chatId) return;
+    if (!chatId) return;
 
-  let active = true;
-  const controller = new AbortController(); // cleanup에서만 사용
+    let active = true;
+    const controller = new AbortController(); // cleanup에서만 사용
 
-  const tick = async () => {
-    if (!active) return;
-    try {
-      const res = await fetch(`/api/chat/${chatId}/messageState?t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' },
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`API Error: ${res.status}`);
-      const data = await res.json();
-      setMessageState(data.state as MessageState);
+    const tick = async () => {
+      if (!active) return;
+      try {
+        const res = await fetch(`/api/chat/${chatId}/messageState?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        const data = await res.json();
+        setMessageState(data.state as MessageState);
 
-      if (data.state === 'done' || data.state === 'failed') {
-        await fetchChatHistory(chatId);
-        active = false; // 종료
-        return;
+        if (data.state === 'done' || data.state === 'failed') {
+          await fetchChatHistory(chatId);
+          active = false; // 종료
+          return;
+        }
+      } catch (e: any) {
+        // AbortError면 종료하지 않음(대개 언마운트/전환 시 발생)
+        if (e?.name !== 'AbortError') {
+          console.error(e);
+          // 일시적 에러면 약간 대기 후 재시도
+        }
       }
-    } catch (e: any) {
-      // AbortError면 종료하지 않음(대개 언마운트/전환 시 발생)
-      if (e?.name !== 'AbortError') {
-        console.error(e);
-        // 일시적 에러면 약간 대기 후 재시도
-      }
-    }
 
     if (active) {
       setTimeout(tick, 300);
@@ -131,7 +131,6 @@ export default function ChatPage() {
     controller.abort(); // 여기서만 abort
   };
 }, [chatId]);
-
 
   // 상태가 done/failed로 바뀌면 서버에서 메시지 새로고침
   useEffect(() => {
@@ -192,7 +191,6 @@ export default function ChatPage() {
 
       // 새 채팅이면 라우팅만 (상태는 route-param이 관리)
       if (response?.chat_id && !chatId) {
-        // const newChatId = response.chat_id;
         // 먼저 로컬에서 "임시 채팅 진행중" UI를 유지
         router.push(`/chat/${response.chat_id}`);
         fetchChatSessions?.();

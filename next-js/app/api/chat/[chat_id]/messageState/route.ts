@@ -16,8 +16,7 @@ export const revalidate = 0;
 
 export async function GET(request: NextRequest, ctx: { params: Promise<{ chat_id: string }> }){
     try {
-        // console.log("################ 호출 시작 #########################")
-        // console.log(ctx.params)
+
         const tokenOrRes = await getAccessToken();
         if (tokenOrRes instanceof NextResponse) {
             // 401 등 응답을 그대로 반환
@@ -34,9 +33,9 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ chat_id
             cache: "no-store"
         });
         if (!fastApiResponse.ok) {
-        const errorBody = await fastApiResponse.text();
-        console.error('FastAPI backend returned an error:', errorBody);
-        return new NextResponse(errorBody, { status: fastApiResponse.status });
+            const errorBody = await fastApiResponse.text();
+            console.error('FastAPI backend returned an error:', errorBody);
+            return new NextResponse(errorBody, { status: fastApiResponse.status });
         }
         
         const responseBody = await fastApiResponse.json();
