@@ -65,7 +65,6 @@ export default function ChatPage() {
     : undefined;
 
   const [messages, setMessages] = useState<Message[]>([])
-  const [lastMessage, setLastMessage] = useState<Message | null>(null)
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [messageState, setMessageState] = useState<MessageState>("commencing")
@@ -108,7 +107,7 @@ export default function ChatPage() {
         setMessageState(data.state as MessageState);
 
         if (data.state === 'done' || data.state === 'failed') {
-          await fetchChatHistory(chatId);
+          await fetchChatHistory(chatId, { allowEmptyReplace:false });
           active = false; // 종료
           return;
         }
@@ -155,7 +154,6 @@ export default function ChatPage() {
       }
       const historyData: Message[] = await response.json()
       if (historyData.length === 0 && !allowEmptyReplace) {
-      // 진행 중(서버 히스토리 미기록)엔 로컬 플레이스홀더 유지
         return;
       }
       const messagesWithClientIds = historyData.map((message: any) => ({
@@ -163,7 +161,6 @@ export default function ChatPage() {
         id: uuidv4()
       }));
       setMessages(messagesWithClientIds)
-      setLastMessage(null)
     } catch(error){
       console.error("Failed to fetch chat history: ", error)
     } finally {
@@ -182,8 +179,8 @@ export default function ChatPage() {
     const userMessage: Message = { id: uuidv4(), role: 'user', content: input, };
     const placeholderId = uuidv4();
     const assistantPlaceholder: Message = { id: placeholderId, role: 'assistant', content: '', };
-    setMessages(prev => [...prev, userMessage]);
-    setLastMessage(assistantPlaceholder);
+    setMessages(prev => [...prev, userMessage, assistantPlaceholder]);
+    // setMessages([{ id: uuidv4(), role: 'assistant', content: "임시", }])    
     setInput("");
     setIsLoading(true);
     setMessageState("commencing");
@@ -193,29 +190,22 @@ export default function ChatPage() {
 
       // 새 채팅이면 라우팅만 (상태는 route-param이 관리)
       if (response?.chat_id && !chatId) {
+        // 먼저 로컬에서 "임시 채팅 진행중" UI를 유지
         router.push(`/chat/${response.chat_id}`);
         fetchChatSessions?.();
       }
 
       // 동기 응답(폴백 등)인 경우에는 바로 치환
       if (response?.answer) {
-        const assistantMessage: Message = {
-          id: placeholderId,
-          role: "assistant",
-          content: response.answer,
-        };
-        setLastMessage(null);
-        setMessages(prev => [...prev, assistantMessage]);
+        setMessages(prev =>
+            prev.map(m => m.id === placeholderId ? { ...m, content: response.answer } : m)
+        );
       }
     } catch (err) {
       console.error(err);
-      const errorMessage: Message = {
-        id: placeholderId,
-        role: "assistant",
-        content: "오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-      };
-      setLastMessage(null);
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => prev.map(m => m.id === placeholderId
+        ? { id: placeholderId, role: "assistant", content: "오류가 발생했습니다. 잠시 후 다시 시도해주세요." }
+        : m));
       setMessageState("failed");
     } finally {
       setIsLoading(false);
@@ -251,8 +241,8 @@ export default function ChatPage() {
       content: '',
     };
 
-    setMessages([userMessage]);
-    setLastMessage(assistantPlaceholder);
+    const newMessagesWithPlaceholder = [userMessage, assistantPlaceholder];
+    setMessages(newMessagesWithPlaceholder);
     setInput('');
     setIsLoading(true);
 
@@ -266,8 +256,7 @@ export default function ChatPage() {
           role: 'assistant',
           content: response.answer,
         };
-        setLastMessage(null);
-        setMessages(prev => [...prev, assistantMessage]);
+        setMessages((prev) => prev.map(m => m.id === placeholderId ? assistantMessage : m));
 
         if (response.chat_id && !chatId) {
           const newChatId = response.chat_id;
@@ -275,15 +264,14 @@ export default function ChatPage() {
         }
         // fetchChatSessions();
       } else if (response?.chat_id && chatId) {
-        // 비동기 응답: placeholder 유지, 히스토리 로딩 시 치환
+        setMessages(prev => prev.filter(m => m.id !== placeholderId));
       } else {
         const errorMessage: Message = {
           id: placeholderId,
           role: 'assistant',
           content: response?.error || '오류가 발생했습니다.',
         };
-        setLastMessage(null);
-        setMessages(prev => [...prev, errorMessage]);
+        setMessages((prev) => prev.map(m => m.id === placeholderId ? errorMessage : m));
       }
     } catch (error) {
       console.error("Error in handleStartChatFromModal: ", error);
@@ -292,8 +280,7 @@ export default function ChatPage() {
         role: 'assistant',
         content: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
       };
-      setLastMessage(null);
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages((prev) => prev.map(m => m.id === placeholderId ? errorMessage : m));
     } finally {
       setIsLoading(false);
     }
@@ -427,11 +414,9 @@ export default function ChatPage() {
   const resetToHome = () => {
     router.push('/chat');
     setMessages([]);
-    setLastMessage(null);
     // setHasActiveThread(false);
   }
 
-  const displayedMessages = lastMessage ? [...messages, lastMessage] : messages;
   const shouldShowWelcome = !chatId && messages.length === 0;
 
   return (
@@ -641,7 +626,7 @@ export default function ChatPage() {
           ) : (
             // Chat message display
             <div className="max-w-3xl mx-auto space-y-4">
-                {displayedMessages.length === 0 && chatId && messageState !== "done" ? (
+                {messages.length === 0 && chatId && messageState !== "done" ? (
                     <div className="flex justify-start">
                     <div className="flex space-x-3 max-w-2xl">
                         <Avatar className="w-8 h-8">
@@ -655,7 +640,7 @@ export default function ChatPage() {
                     </div>
                     </div>
                 ) : (
-                    displayedMessages.map((message) => (
+                    messages.map((message) => (
                         <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                             <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
                             <Avatar className="w-8 h-8">
@@ -679,30 +664,6 @@ export default function ChatPage() {
                     ))
                 )}
             </div>
-            // <div className="max-w-3xl mx-auto space-y-4">
-            //   {messages.map((message) => (
-            //     <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-            //       <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
-            //         <Avatar className="w-8 h-8">
-            //           {message.role === "user" ? (
-            //             <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
-            //           ) : (
-            //             <AvatarImage src="/placeholder.svg?height=32&width=32" />
-            //           )}
-            //         </Avatar>
-            //         <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
-            //           <div className="whitespace-pre-wrap">
-            //             {message.role === "assistant"
-            //               ? (message.content === "" && messageState && messageState !== "done"
-            //                   ? STATE_TEXT[messageState as NonDoneState]
-            //                   : (message.content || "..."))
-            //               : message.content}
-            //           </div>
-            //         </div>
-            //       </div>
-            //     </div>
-            //   ))}
-            // </div>
           )}
         </div>
 

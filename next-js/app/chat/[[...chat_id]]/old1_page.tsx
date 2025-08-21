@@ -332,7 +332,7 @@ export default function ChatPage() {
         return;
       }
       const data = await response.json();
-      console.log(data)
+      // console.log(data)
       const formattedSessions: ChatSession[] = data.map((chat: any) => {
         let type: string[] = [];
         if (Array.isArray(chat.type)) {
@@ -340,18 +340,6 @@ export default function ChatPage() {
         } else if (typeof chat.type === 'string'){
           type = chat.type.split(',').map((s: string) => s.trim())
         }
-        // } else if (typeof chat.type === 'string' && chat.type) {
-        //   if (chat.type.startsWith('[') && chat.type.endsWith(']')) {
-        //     try {
-        //       type = JSON.parse(chat.type);
-        //     } catch (e) {
-        //       console.error("Failed to parse chat.type JSON string:", chat.type, e);
-        //       type = [];
-        //     }
-        //   } else {
-        //     type = chat.type.split(',').map((s: string) => s.trim()).filter(Boolean);
-        //   }
-        // }
         return {
           id: chat.id,
           title: chat.title,
