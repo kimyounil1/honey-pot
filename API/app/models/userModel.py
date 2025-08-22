@@ -53,12 +53,14 @@ class AIAnalysis(Base):
     user = relationship("User", back_populates="ai_analyses")
     document = relationship("Document", back_populates="ai_analyses")
 
+# 발췌: Prediction만 수정
 class Prediction(Base):
     __tablename__ = "prediction"
 
     prediction_id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.user_id"), nullable=False)
-    policy_id = Column(Integer, ForeignKey("insurance_policy.policy_id"))
+    # 🔁 FK 타깃 교체
+    policy_id = Column(Integer, ForeignKey("insurance_policy.id"))
     expected_amount = Column(Float)
     prediction_date = Column(Date)
     rationale = Column(Text)
