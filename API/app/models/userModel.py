@@ -68,8 +68,5 @@ class Prediction(Base):
     expected_amount = Column(Float)
     prediction_date = Column(Date)
     rationale = Column(Text)
-    def _InsurancePolicy(self):
-        from .policyModel import InsurancePolicy
-        return InsurancePolicy
     user = relationship("User", back_populates="predictions")
     policy = relationship(_InsurancePolicy, back_populates="predictions")

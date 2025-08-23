@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.ext.mutable import MutableList
 from app.database import Base
 from .enums import ProductType, RenewalType
+from . import userModel  # ensure User is registered before policy relationships
 from .policyModel import InsurancePolicy
 from .coverageModel import CoverageItem
 from .policyCoverageModel import PolicyCoverage

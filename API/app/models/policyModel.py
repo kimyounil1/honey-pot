@@ -1,9 +1,9 @@
 from __future__ import annotations
 from typing import List, Optional
-from sqlalchemy import Integer, String, Date, Text, Boolean, SmallInteger, ForeignKey, Column
+from sqlalchemy import Integer, String, Date, Text, Boolean, SmallInteger, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
-from .base import Base
+from app.database import Base
 from .enums import product_type_enum, renewal_type_enum, ProductType, RenewalType
 
 def _User():
@@ -16,11 +16,9 @@ def _Prediction():
 
 class InsurancePolicy(Base):
     __tablename__ = "insurance_policy"
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     # ✅ Postgres 예약어 테이블은 반드시 인용: "user"
-    user_id = Column(Integer, ForeignKey('"user".user_id'), nullable=False)
-    # 백업 스키마 상 NOT NULL
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey('"user".user_id'), nullable=False)
     policy_id: Mapped[Optional[str]] = mapped_column(String(128))
     insurer: Mapped[Optional[str]] = mapped_column(String(255))
@@ -53,7 +51,9 @@ class InsurancePolicy(Base):
     non_benefit_links: Mapped[List["PolicyNonBenefitMap"]] = relationship(
         back_populates="policy", cascade="all, delete-orphan"
     )
-    predictions = relationship("Prediction", back_populates="policy", cascade="all, delete-orphan")
-    user = relationship("User", back_populates="insurance_policies")
+    # use lazy callables to avoid import-order issues
+    predictions = relationship(_Prediction, back_populates="policy", cascade="all, delete-orphan")
+    user = relationship(_User, back_populates="insurance_policies")
+
     def __repr__(self) -> str:
         return f"<InsurancePolicy id={self.id} insurer={self.insurer} code={self.product_code}>"
