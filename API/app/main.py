@@ -10,10 +10,13 @@ from app.routers import user, policy, claim, chat, document, test, non_benefit, 
 from app.crud import userCRUD
 from app.schemas import userSchema
 from contextlib import asynccontextmanager
-
+from app.models.enums import product_type_enum, renewal_type_enum
+import app.models
 
 async def create_db_and_tables():
     async with engine.begin() as conn:
+        await conn.run_sync(product_type_enum.create, checkfirst=True)
+        await conn.run_sync(renewal_type_enum.create, checkfirst=True)
         await conn.run_sync(Base.metadata.create_all)
 
 
