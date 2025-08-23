@@ -27,8 +27,8 @@ class User(Base):
 class Document(Base):
     __tablename__ = "document"
     document_id = Column(Integer, primary_key=True, index=True)
-    # ✅ Postgres 예약어 테이블은 인용 필요
-    user_id = Column(Integer, ForeignKey('"user".user_id'), nullable=False)
+    # SQLAlchemy automatically quotes reserved table names like "user"
+    user_id = Column(Integer, ForeignKey("user.user_id"), nullable=False)
     file_name = Column(String(255))
     file_type = Column(String(50))
     upload_date = Column(Date)
@@ -40,7 +40,7 @@ class Document(Base):
 class ChatHistory(Base):
     __tablename__ = "chat_history"
     chat_id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey('"user".user_id'))
+    user_id = Column(Integer, ForeignKey("user.user_id"))
     timestamp = Column(DateTime)
     user_question = Column(Text)
     ai_response = Column(Text)
@@ -50,7 +50,7 @@ class ChatHistory(Base):
 class AIAnalysis(Base):
     __tablename__ = "ai_analysis"
     analysis_id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey('"user".user_id'))
+    user_id = Column(Integer, ForeignKey("user.user_id"))
     document_id = Column(Integer, ForeignKey("document.document_id"))
     summary = Column(Text)
     recommendation = Column(Text)
@@ -62,8 +62,8 @@ class AIAnalysis(Base):
 class Prediction(Base):
     __tablename__ = "prediction"
     prediction_id = Column(Integer, primary_key=True, index=True)
-    # ✅ 반드시 인용
-    user_id = Column(Integer, ForeignKey('"user".user_id'), nullable=False)
+    # SQLAlchemy automatically quotes reserved table names like "user"
+    user_id = Column(Integer, ForeignKey("user.user_id"), nullable=False)
     policy_id = Column(Integer, ForeignKey("insurance_policy.id"))
     expected_amount = Column(Float)
     prediction_date = Column(Date)

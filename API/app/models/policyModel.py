@@ -18,8 +18,8 @@ class InsurancePolicy(Base):
     __tablename__ = "insurance_policy"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
-    # ✅ Postgres 예약어 테이블은 반드시 인용: "user"
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey('"user".user_id'), nullable=False)
+    # SQLAlchemy automatically quotes reserved table names like "user"
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.user_id"), nullable=False)
     policy_id: Mapped[Optional[str]] = mapped_column(String(128))
     insurer: Mapped[Optional[str]] = mapped_column(String(255))
     product_code: Mapped[Optional[str]] = mapped_column(String(100))
@@ -49,6 +49,9 @@ class InsurancePolicy(Base):
         back_populates="policy", cascade="all, delete-orphan"
     )
     non_benefit_links: Mapped[List["PolicyNonBenefitMap"]] = relationship(
+        back_populates="policy", cascade="all, delete-orphan"
+    )
+    claims: Mapped[List["Claim"]] = relationship(
         back_populates="policy", cascade="all, delete-orphan"
     )
     # use lazy callables to avoid import-order issues

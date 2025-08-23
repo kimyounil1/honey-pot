@@ -3,7 +3,7 @@ from typing import Optional
 from sqlalchemy import Numeric, String, PrimaryKeyConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from .enums import product_type_enum
-
+from .base import Base
 class ComplementarityRules(Base):
     __tablename__ = "complementarity_rules"
     __table_args__ = (
