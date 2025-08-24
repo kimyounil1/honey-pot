@@ -6,14 +6,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, engine, AsyncSessionLocal
 from app.services.non_benefit_seed import maybe_seed_on_start
-from app.routers import user, policy, claim, chat, document, test, non_benefit, ocr
+from app.routers import user, policy, claim, chat, document, test, non_benefit, ocr, sync
 from app.crud import userCRUD
 from app.schemas import userSchema
 from contextlib import asynccontextmanager
-
+from app.models.enums import product_type_enum, renewal_type_enum
+import app.models
 
 async def create_db_and_tables():
     async with engine.begin() as conn:
+        await conn.run_sync(product_type_enum.create, checkfirst=True)
+        await conn.run_sync(renewal_type_enum.create, checkfirst=True)
         await conn.run_sync(Base.metadata.create_all)
 
 
@@ -78,5 +81,7 @@ app.include_router(document.router)
 app.include_router(test.router)
 app.include_router(non_benefit.router)
 app.include_router(ocr.router)
+app.include_router(sync.router)  # include 추가
+
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
