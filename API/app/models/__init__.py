@@ -8,7 +8,6 @@ from .policyModel import InsurancePolicy
 from .coverageModel import CoverageItem
 from .policyCoverageModel import PolicyCoverage
 from .nonBenefitModel import NonBenefitItem
-from .policyNonBenefitMap import PolicyNonBenefitMap
 from .policyPremiumModel import PolicyPremium
 from .coverageItemWeightModel import CoverageItemWeight
 from .complementarityRulesModel import ComplementarityRules
@@ -22,7 +21,6 @@ __all__ = [
     "CoverageItem",
     "PolicyCoverage",
     "NonBenefitItem",
-    "PolicyNonBenefitMap",
     "PolicyPremium",
     "CoverageItemWeight",
     "ComplementarityRules",
