@@ -135,3 +135,39 @@ async def ingest_policy(text: str, meta: Dict[str, Any]) -> int:
 
     logger.info("Indexed %d documents for policy %s", int(success), meta.get("policy_id"))
     return int(success)
+
+async def preview_policy(text: str, meta: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """청킹 로직을 그대로 적용해 bulk 액션만 생성한다.
+
+    OpenSearch 에는 전혀 전송하지 않고, helpers.bulk 에 전달될 "actions" 배열을
+    그대로 반환한다. 디버깅이나 청킹 결과 확인 용도로 사용한다.
+
+    Args:
+        text: 인덱싱 대상 원본 텍스트
+        meta: 각 청크에 포함할 메타데이터
+
+    Returns:
+        helpers.bulk 에 전달 가능한 액션 딕셔너리 리스트
+    """
+
+    if not text:
+        logger.warning("preview_policy called with empty text")
+        return []
+
+    max_chars = int(getattr(settings, "OPENSEARCH_MAX_CHARS", 200_000))
+    chunks = _split_text(text, max_chars)
+
+    index = settings.OPENSEARCH_INDEX
+
+    actions: List[Dict[str, Any]] = []
+    for i, (section_title, chunk) in enumerate(chunks):
+        doc = {
+            **meta,
+            "chunk_index": i,
+            "section_title": section_title,
+            "content": chunk,
+        }
+        actions.append({"_index": index, "_source": doc})
+
+    logger.info("Prepared %d preview actions for policy %s", len(actions), meta.get("policy_id"))
+    return actions

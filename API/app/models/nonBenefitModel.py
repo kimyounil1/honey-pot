@@ -17,5 +17,3 @@ class NonBenefitItem(Base):
     extra_1: Mapped[Optional[str]] = mapped_column(Text)
     extra_2: Mapped[Optional[str]] = mapped_column(Text)
     extra_3: Mapped[Optional[str]] = mapped_column(Text)
-
-    policies: Mapped[List["PolicyNonBenefitMap"]] = relationship(back_populates="non_benefit_item")

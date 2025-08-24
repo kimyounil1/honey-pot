@@ -48,9 +48,6 @@ class InsurancePolicy(Base):
     premiums: Mapped[List["PolicyPremium"]] = relationship(
         back_populates="policy", cascade="all, delete-orphan"
     )
-    non_benefit_links: Mapped[List["PolicyNonBenefitMap"]] = relationship(
-        back_populates="policy", cascade="all, delete-orphan"
-    )
     claims: Mapped[List["Claim"]] = relationship(
         back_populates="policy", cascade="all, delete-orphan"
     )
