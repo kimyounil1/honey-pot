@@ -9,7 +9,7 @@ from app.database import get_db
 
 from app.rag.retriever import (
     extract_coverage_batched, reduce_coverage,
-    extract_premiums_batched, reduce_premiums,
+    extract_premiums_batched, reduce_premiums, _pack_batches_by_tokens,
 )
 
 # DB models
@@ -140,16 +140,13 @@ async def preview_from_policy(
     base_items = list(res.scalars().all())
     base_names = [c.name for c in base_items]
     id_by_name = {c.name: c.id for c in base_items}
-
     # (4) LLM 추출
-    cov_raw = await extract_coverage_batched(base_names, chunks_src)
-    prem_raw = await extract_premiums_batched(chunks_src)
-
+    chunk_batches = _pack_batches_by_tokens(chunks_src)
+    cov_raw = await extract_coverage_batched(base_names, chunk_batches)
+    prem_raw = await extract_premiums_batched(chunk_batches)
     # 3) REDUCE: 서버 쪽 결정적 병합
     cov_rows = reduce_coverage(cov_raw)
     prem_rows = reduce_premiums(prem_raw)
-    print(cov_rows)
-    print(prem_rows)
     # 정규화
     def _norm_cov(rows):
         out=[]

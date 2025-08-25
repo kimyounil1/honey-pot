@@ -4,11 +4,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import os
 import logging
 import boto3
-
+import json, re
 from opensearchpy import OpenSearch, RequestsHttpConnection, AWSV4SignerAuth
 from app.services.common import Mode
 from app.config import settings
-import json
 from typing import List, Dict, Any
 from starlette.concurrency import run_in_threadpool
 
@@ -281,13 +280,13 @@ def _wx_generate_answer(prompt: str) -> str:
         return ""
     try:
         gen_params = {
+            GenParams.MAX_NEW_TOKENS: 8000,
             GenParams.TEMPERATURE: 0.2,
             GenParams.DECODING_METHOD: "greedy",
             GenParams.REPETITION_PENALTY: 1.05,
             GenParams.STOP_SEQUENCES: [],
         }
         resp = model.generate_text(prompt=prompt, params=gen_params)
-
         return (resp or "").strip()
     except Exception as e:
         logger.exception("watsonx.ai generation failed: %s", e)
@@ -346,10 +345,11 @@ from typing import List, Dict, Any, Tuple, Optional
 import math, json
 from starlette.concurrency import run_in_threadpool
 
-MODEL_LIMIT = 20_000           # llama-4 maverick 17B 입력 총 한도
+MODEL_LIMIT = 91_072           # llama-4 maverick 17B 총 입력 한도
 OUTPUT_RESERVE = 8_096          # 출력 토큰 예약 (상황에 따라 조절)
 PROMPT_OVERHEAD = 2_000         # 시스템/지시/메타 오버헤드 가정
-CONTEXT_BUDGET = MODEL_LIMIT - OUTPUT_RESERVE - PROMPT_OVERHEAD
+CONTEXT_BUDGET = 20_000         # 문맥 청크에 허용할 토큰 수
+NAME_BUDGET = MODEL_LIMIT - OUTPUT_RESERVE - PROMPT_OVERHEAD - CONTEXT_BUDGET
 
 def _tok_count(s: str) -> int:
     # watson 토크나이저 있으면 정확, 없으면 러프
@@ -366,74 +366,177 @@ def _chunk_to_text(c: Dict[str, Any]) -> str:
         return ""
     return f"### {title}\n{body}" if title else body
 
-def _pack_batches_by_tokens(chunks: List[Dict[str, Any]], budget_tokens: int = CONTEXT_BUDGET) -> List[List[Dict[str, Any]]]:
-    """
-    조각 리스트를 토큰 예산에 맞춰 여러 배치로 나눕니다.
-    """
-    batches: List[List[Dict[str, Any]]] = []
-    cur: List[Dict[str, Any]] = []
-    used = 0
+def _materialize_chunks(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """각 청크에 _text, _approx_tok 필드를 부여"""
+    out: List[Dict[str, Any]] = []
     for c in chunks:
-        print("청크를 토큰 예산에서 맞춰서 다시 재배치로 분할")
         t = _chunk_to_text(c)
         if not t:
             continue
-        cost = _tok_count(t) + 24  # 헤더 여유치
-        if cost > budget_tokens * 0.9:
-            # 개별 조각이 너무 큰 경우: 과감히 잘라서 줄이기
-            short = t[: max(1, (budget_tokens // 3) * 3)]
-            c = dict(c)
-            c["content"] = short
-            cost = _tok_count(_chunk_to_text(c)) + 24
+        m = dict(c)  # 얕은 복사
+        m["_text"] = t
+        m["_approx_tok"] = max(1, len(t) // 3)  # 로컬 근사치
+        out.append(m)
+    return out
+
+def _shrink_text_by_chars(text: str, target_tokens: int) -> str:
+    # 근사치: 1토큰≈3문자 → 여유를 두고 2.8로 나눔
+    max_chars = int(target_tokens * 2.8)
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "…"
+
+def _pack_batches_by_tokens(chunks: List[Dict[str, Any]], budget_tokens: int = CONTEXT_BUDGET) -> List[List[Dict[str, Any]]]:
+    """네트워크 토크나이저 호출 없이, 근사 토큰으로만 배치 구성"""
+    mats = _materialize_chunks(chunks)  # _text, _approx_tok 포함
+    batches: List[List[Dict[str, Any]]] = []
+    cur: List[Dict[str, Any]] = []
+    used = 0
+
+    for m in mats:
+        cost = m["_approx_tok"] + 24  # 헤더 여유치
+        # 개별 청크가 과도하게 크면 잘라서 삽입
+        if cost > int(budget_tokens * 0.9):
+            short = _shrink_text_by_chars(m["_text"], int(budget_tokens * 0.9))
+            m = dict(m)
+            m["_text"] = short
+            m["_approx_tok"] = max(1, len(short) // 3)
+            cost = m["_approx_tok"] + 24
 
         if used + cost > budget_tokens and cur:
             batches.append(cur); cur = []; used = 0
-        cur.append(c); used += cost
+        cur.append(m); used += cost
 
     if cur:
         batches.append(cur)
     return batches
 
+def _pack_name_groups(names: List[str], budget_tokens: int = NAME_BUDGET) -> List[List[str]]:
+    groups, cur, used = [], [], 0
+    for n in names:
+        # json.dumps 대신 길이 기반 근사 (문자/3 + 쉼표 여유치)
+        t = max(1, len(n) // 3) + 1
+        if used + t > budget_tokens and cur:
+            groups.append(cur); cur, used = [], 0
+        cur.append(n); used += t
+    if cur:
+        groups.append(cur)
+    return groups
+
 async def _wx_async(prompt: str) -> str:
     return await run_in_threadpool(_wx_generate_answer, prompt)
 
-def extract_json_array(text: str) -> List[Any]:
-    try:
-        obj = json.loads(text)
-        return obj if isinstance(obj, list) else []
-    except Exception:
-        i, j = text.find("["), text.rfind("]")
-        if i >= 0 and j >= i:
+_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
+
+def _sanitize_json_like(s: str) -> str:
+    # 흔한 오류: trailing comma 제거
+    s = re.sub(r",\s*(\]|\})", r"\1", s)
+    # 제어문자 제거(가끔 들어오는 0-width 등)
+    s = "".join(ch for ch in s if ch.isprintable() or ch in "\n\r\t")
+    return s.strip()
+
+def _match_json_array(s: str, start: int) -> Optional[str]:
+    """start가 가리키는 '['에서 시작해 문자열/이스케이프를 고려해
+    균형이 맞는 첫 배열만 잘라 반환. 없으면 None."""
+    depth = 0
+    i = start
+    in_str = False
+    esc = False
+    while i < len(s):
+        ch = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == '[':
+                depth += 1
+            elif ch == ']':
+                depth -= 1
+                if depth == 0:
+                    return s[start:i+1]
+        i += 1
+    return None
+
+def _first_json_array_anywhere(s: str) -> Optional[List[Any]]:
+    idx = s.find('[')
+    while idx != -1:
+        cand = _match_json_array(s, idx)
+        if cand:
+            txt = _sanitize_json_like(cand)
             try:
-                return json.loads(text[i:j+1])
+                obj = json.loads(txt)
+                if isinstance(obj, list):
+                    return obj
             except Exception:
-                return []
+                pass
+        idx = s.find('[', idx + 1)
+    return None
+
+def extract_json_array(text: str) -> List[Any]:
+    """모델이 앞에 설명을 붙이거나 fenced code block을 쓰는 경우도 안전하게 배열만 추출"""
+    if not isinstance(text, str):
         return []
+
+    # 1) 코드 펜스 우선 (```json ... ``` 또는 ``` ... ```)
+    for m in _CODE_FENCE_RE.finditer(text):
+        block = _sanitize_json_like(m.group(1))
+        # 블록 자체가 배열이면 바로
+        try:
+            obj = json.loads(block)
+            if isinstance(obj, list):
+                return obj
+        except Exception:
+            # 블록 안에 여러 내용이 섞였으면 배열만 다시 찾기
+            arr = _first_json_array_anywhere(block)
+            if arr is not None:
+                return arr
+
+    # 2) 문서 전체에서 첫 완결 배열만 추출
+    arr = _first_json_array_anywhere(text)
+    if arr is not None:
+        return arr
+
+    # 3) 마지막 시도: 앞뒤 토막 제거 후 재시도
+    i, j = text.find('['), text.rfind(']')
+    if i >= 0 and j >= i:
+        try:
+            return json.loads(_sanitize_json_like(text[i:j+1])) or []
+        except Exception:
+            return []
+
+    return []
 
 # ----------------------- MAP (Watson 호출) -----------------------
 
-async def extract_coverage_batched(base_names: List[str], chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    batches = _pack_batches_by_tokens(chunks)
+async def extract_coverage_batched(base_names: List[str], chunks: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    name_groups = _pack_name_groups(base_names)
+    print(name_groups)
     out: List[Dict[str, Any]] = []
-    for b in batches:
-        print("========WATSON BATCH 호출==========")
-        prompt = _coverage_prompt(base_names, b)   # ← 프롬프트는 문자열
-        txt = await _wx_async(prompt)
-        arr = extract_json_array(txt)
-        # JSON 타입 방어 (숫자 문자열 -> 숫자)
-        for it in arr:
-            if isinstance(it, dict):
-                for k in ("coinsurance_pct","deductible_min","per_visit_limit","annual_limit","combined_cap_amount","frequency_limit","coverage_order"):
-                    if k in it and isinstance(it[k], str):
-                        try:
-                            it[k] = float(it[k]) if "." in it[k] else int(it[k])
-                        except Exception:
-                            pass
-        out.extend([x for x in arr if isinstance(x, dict)])
+    for names in name_groups:
+        for b in chunks:
+            prompt = _coverage_prompt(names, b)
+            txt = await _wx_async(prompt)
+            arr = extract_json_array(txt)
+            # JSON 타입 방어 (숫자 문자열 -> 숫자)
+            for it in arr:
+                if isinstance(it, dict):
+                    for k in ("coinsurance_pct","deductible_min","per_visit_limit","annual_limit","combined_cap_amount","frequency_limit","coverage_order"):
+                        if k in it and isinstance(it[k], str):
+                            try:
+                                it[k] = float(it[k]) if "." in it[k] else int(it[k])
+                            except Exception:
+                                pass
+            out.extend([x for x in arr if isinstance(x, dict)])
     return out
 
-async def extract_premiums_batched(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    batches = _pack_batches_by_tokens(chunks)
+async def extract_premiums_batched(chunks: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    batches = chunks
     out: List[Dict[str, Any]] = []
     for b in batches:
         prompt = _premium_prompt(b)
@@ -548,7 +651,7 @@ def reduce_premiums(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     return sorted(agg.values(), key=lambda d: (d.get("tier") or "standard", d.get("gender") or "A", d.get("age_min") or 0))
 
-def _chunks_to_context(chunks: List[Dict[str, Any]], max_chars: int = 500_000) -> str:
+def _chunks_to_context(chunks: List[Dict[str, Any]], max_chars: int = 100_000) -> str:
     """section_title, content/embed_input/text 순으로 문맥 합치기 (중복 제거 포함)."""
     parts: List[str] = []
     for c in chunks:
