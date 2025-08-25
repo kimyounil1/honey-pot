@@ -69,6 +69,8 @@ JSON 배열만 출력:
 """
 
 POLICY_META_SYS = """너는 한국 보험 약관/요약서에서 상품 메타데이터를 구조화하는 전문가야.
+'출력은 오직 JSON 배열 하나. 키는 정확히 다음만 사용(대소문자 포함, 추가/누락/다른 케이스 금지): '
+'["product_type","renewal_type","waiting_period_days","age_min","age_max","gender_allowed","is_catalog","attrs"]'
 JSON 배열 하나만 출력하고, 객체는 다음 키를 포함해야 해:
 {
   "product_type": "암보험|실손|운전자|종신|정기|치아|어린이|간병|기타",
@@ -715,7 +717,9 @@ async def extract_policy_meta(chunks: List[List[Dict[str, Any]]]) -> Dict[str, A
     flat = [c for b in chunks for c in b]
     prompt = _policy_meta_prompt(flat)
     txt = await _wx_async(prompt)
+    print(txt)
     arr = extract_json_array(txt)
+    print(arr)
     for it in arr:
         if isinstance(it, dict):
             for k in ("waiting_period_days", "age_min", "age_max"):
