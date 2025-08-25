@@ -21,3 +21,10 @@ class InsurancePolicyRead(InsurancePolicyBase):
     user_id: int
     class Config:
         orm_mode = True
+
+class InsurancePolicyInsurers(BaseModel):
+    insurers: list[str]
+
+class InsurancePolicyList(BaseModel):
+    insurer: str
+    policies: list[str]
