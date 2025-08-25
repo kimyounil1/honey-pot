@@ -50,20 +50,23 @@ export async function POST(request: NextRequest, { params }: Params){
     const token = await getAccessToken()
     const { chat_id } = await params
 
-    const { messages, attachment_ids } = await request.json();
+    const { messages } = await request.json();
     const lastUserMessage = messages[messages.length - 1];
     if (!lastUserMessage || lastUserMessage.role !== 'user') {
       return new Response('Valid user message not found in the request body.', { status: 400 });
     }
 
-    const formData = new URLSearchParams()
-    formData.append('text', lastUserMessage.content)
-    if (attachment_ids) {
-      formData.append('attachment_ids', JSON.stringify(attachment_ids));
-    }
+    // 메세지 내부 attachment를 상위필드로 승격
+    const disease_code = lastUserMessage?.attachment?.disease_code ?? null
+    const product_id = lastUserMessage?.attachment?.product_id ?? null
+
+    const data = new URLSearchParams()
+    data.append('text', lastUserMessage.content)
     if (chat_id) {
-      formData.append('chat_id', String(chat_id));
+      data.append('chat_id', String(chat_id));
     }
+    if (disease_code != null) data.append("disease_code", disease_code);
+    if (product_id != null)   data.append("product_id", product_id);
 
     const fastApiResponse = await fetch('http://API:8000/chat/ask', {
       method: 'POST',
@@ -72,7 +75,7 @@ export async function POST(request: NextRequest, { params }: Params){
         'Accept': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body: formData,
+      body: data,
     });
     if (!fastApiResponse.ok) {
       const errorBody = await fastApiResponse.text();
