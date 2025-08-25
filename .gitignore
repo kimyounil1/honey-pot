@@ -66,3 +66,4 @@ API/.env
 API/.env.backup
 tatus
 (old)*
+test_*

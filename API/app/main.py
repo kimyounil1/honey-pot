@@ -31,6 +31,8 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         admin_email = os.getenv("ADMIN_EMAIL")
         admin_passwd = os.getenv("ADMIN_PW")
+        test_email = os.getenv("TEST_USER_EMAIL")
+        test_passwd = os.getenv("TEST_USER_PW")
         if admin_email and admin_passwd:
             user_in_db = await userCRUD.get_user_by_email(db, email=admin_email)
             if not user_in_db:
@@ -47,6 +49,24 @@ async def lifespan(app: FastAPI):
                 print(f"Admin user '{admin_email}' already exists.")
         else:
             print("ADMIN_EMAIL or ADMIN_PW environment variables not set. Skipping admin creation.")
+        
+        if test_email and test_passwd:
+            user_in_db = await userCRUD.get_user_by_email(db, email=test_email)
+            if not user_in_db:
+                print(f"test user '{test_email}' not found, creating one...")
+                test_user_in = userSchema.UserCreate(
+                    name="테스트",
+                    email=test_email,
+                    password=test_passwd,
+                    birth_date=date(2000, 1, 1)
+                )
+                await userCRUD.create_user(db, user_in=test_user_in)
+                print("Test user created.")
+            else:
+                print(f"Test user '{test_email}' already exists.")
+        else:
+            print("TEST_USER_EMAIL or TEST_USER_PW environment variables not set. Skipping test user creation.")
+        
         try:
             inserted = await maybe_seed_on_start(db)
             if inserted:
