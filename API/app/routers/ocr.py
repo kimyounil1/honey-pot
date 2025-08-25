@@ -10,7 +10,9 @@ from app.database import get_db
 from app.rag.retriever import (
     extract_coverage_batched, reduce_coverage,
     extract_premiums_batched, reduce_premiums, _pack_batches_by_tokens,
+    extract_policy_meta,
 )
+from app.models.enums import ProductType, RenewalType
 
 # DB models
 from app.models.coverageModel import CoverageItem
@@ -41,6 +43,8 @@ from app.schemas import userSchema
 router = APIRouter(prefix="/ocr", tags=["ocr"], dependencies=[Depends(deps.get_current_user)])
 logger = logging.getLogger(__name__)
 
+PRODUCT_TYPES = {e.value for e in ProductType}
+RENEWAL_TYPES = {e.value for e in RenewalType}
 SEGMENTS = {"입원","외래","처방","응급"}
 BENEFITS = {"급여","비급여","선택"}
 FUZZY_CUTOFF = int(os.getenv("COVERAGE_MATCH_CUTOFF", "88"))
@@ -115,7 +119,6 @@ async def preview_from_policy(
     4) LLM으로 coverage/premium 추출
     5) policy_coverage upsert / policy_premium replace
     """
-    policy_id = 78
     if not isinstance(policy_id, int):
         raise HTTPException(status_code=400, detail="policy_id(int) required")
 
@@ -189,9 +192,29 @@ async def preview_from_policy(
             out.append(r)
         return out
 
+    def _norm_meta(row: Dict[str, Any]) -> Dict[str, Any]:
+        r = dict(row or {})
+        if r.get("product_type") not in PRODUCT_TYPES:
+            r["product_type"] = None
+        if r.get("renewal_type") not in RENEWAL_TYPES:
+            r["renewal_type"] = None
+        for k in ("waiting_period_days", "age_min", "age_max"):
+            try:
+                r[k] = int(r.get(k)) if r.get(k) is not None else None
+            except Exception:
+                r[k] = None
+        g = (r.get("gender_allowed") or "").upper()
+        r["gender_allowed"] = g if g in {"M","F","A"} else None
+        r["is_catalog"] = bool(r.get("is_catalog"))
+        if not isinstance(r.get("attrs"), dict):
+            r["attrs"] = None
+        return r
+
     cov_rows = _norm_cov(cov_rows)
     prem_rows = _norm_prem(prem_rows)
-
+    meta_row = _norm_meta(await extract_policy_meta(chunk_batches))
+    for k, v in meta_row.items():
+        setattr(pol, k, v)
     # (5) DB write
     # 5-1) policy_coverage upsert (중복 방지)
     inserted_cov = 0

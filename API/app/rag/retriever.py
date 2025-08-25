@@ -51,6 +51,7 @@ JSON 배열만 출력:
 PREMIUM_SYS = """너는 한국 보험 약관/요약서에서 보험료(월보험료) 표를 구조화한다.
 문서에 숫자 금액이 명시된 경우만 monthly_premium 채운다(없으면 null).
 tier는 문서의 플랜 명칭을 그대로 사용하되 없으면 "standard".
+smoker는 BOOLEAN값으로 리턴 TRUE,FALSE
 gender는 'M','F','A' 중 하나. 연령대는 표의 구간을 그대로 [age_min, age_max].
 JSON 배열만 출력:
 [
@@ -66,6 +67,22 @@ JSON 배열만 출력:
   }
 ]
 """
+
+POLICY_META_SYS = """너는 한국 보험 약관/요약서에서 상품 메타데이터를 구조화하는 전문가야.
+JSON 배열 하나만 출력하고, 객체는 다음 키를 포함해야 해:
+{
+  "product_type": "암보험|실손|운전자|종신|정기|치아|어린이|간병|기타",
+  "renewal_type": "비갱신|연만기갱신|3년갱신|5년갱신|기타",
+  "waiting_period_days": 90,
+  "age_min": 0,
+  "age_max": 100,
+  "gender_allowed": "M|F|A",
+  "is_catalog": false,
+  "attrs": {"키": "값"}
+}
+값이 없으면 null로 남겨.
+"""
+
 # ============================= OpenSearch =============================
 
 def _os_client() -> OpenSearch:
@@ -692,4 +709,29 @@ def _premium_prompt(chunks: List[Dict[str, Any]]) -> str:
         "[지시사항]\n"
         "- JSON 배열만 출력. 주석/설명/라벨 금지.\n"
         "- 문서에 실제 금액 있을 때만 monthly_premium 채움."
+    )
+
+async def extract_policy_meta(chunks: List[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    flat = [c for b in chunks for c in b]
+    prompt = _policy_meta_prompt(flat)
+    txt = await _wx_async(prompt)
+    arr = extract_json_array(txt)
+    for it in arr:
+        if isinstance(it, dict):
+            for k in ("waiting_period_days", "age_min", "age_max"):
+                if k in it and isinstance(it[k], str):
+                    try: it[k] = int(it[k])
+                    except: it[k] = None
+            if "is_catalog" in it and isinstance(it["is_catalog"], str):
+                it["is_catalog"] = it["is_catalog"].lower() in {"true", "1", "yes"}
+            return it
+    return {}
+
+def _policy_meta_prompt(chunks: List[Dict[str, Any]]) -> str:
+    context = _chunks_to_context(chunks)
+    return (
+        f"{POLICY_META_SYS}\n\n"
+        f"[문서 컨텍스트]\n{context}\n\n"
+        "[지시사항]\n"
+        "- JSON 배열만 출력. 주석/설명/라벨 금지."
     )
