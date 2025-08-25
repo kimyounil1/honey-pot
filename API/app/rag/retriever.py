@@ -18,7 +18,9 @@ from app.models import (
     CoverageItemWeight,
     PolicyPremium,
     ComplementarityRules,
+    CoverageItem,
 )
+from sqlalchemy.orm import selectinload
 # watsonx.ai (pip install ibm-watsonx-ai)
 try:
     from ibm_watsonx_ai import Credentials, APIClient
@@ -327,8 +329,10 @@ def retrieve(
     query: str,
     attachment_ids: List[str] | None = None,
     product_id: Optional[str] = None,
-    limit: int = 5,
+    limit: int = 20,
     fallback_to_global: bool = False,
+    db_context: str | None = None,
+
 ) -> str:
     try:
         if product_id:
@@ -339,7 +343,7 @@ def retrieve(
             snippets=snippets,
             user_query=query,
         )
-        prompt = _rag_prompt(user_query=query, context_block=context_block)
+        prompt = _rag_prompt(user_query=query, context_block=context_block+db_context)
         print("[RAG AUTO PROMPT END]\n" + prompt)
         answer = _wx_generate_answer(prompt)
         print("[RAG AUTO ANSWER END]\n" + answer)
@@ -356,117 +360,160 @@ def retrieve(
 #
 from typing import Dict, Any
 
-async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: str,user_id: int) -> str:
-    """
-    TODO: 실제 약관 DB 직조회 로직으로 교체.
-    현재는 빈 문자열을 반환하여 stage에서 RAG 보조를 시도하게 둡니다.
-    """
+async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: str, user_id: int) -> str:
+    """DB lookups for recommendation or refund modes."""
     try:
-        if mode != Mode.RECOMMEND:
-            return ""
-
         async with AsyncSessionLocal() as session:
-            # 보유 보험 조회
-            res = await session.execute(
-                select(InsurancePolicy).where(InsurancePolicy.user_id == user_id)
-            )
-            user_pols = res.scalars().all()
-            if not user_pols:
-                return ""
-
-            # 추천 후보 (user_id=1)
-            res = await session.execute(
-                select(InsurancePolicy).where(InsurancePolicy.user_id == 1)
-            )
-            candidates = res.scalars().all()
-            if not candidates:
-                return ""
-
-            # 후보 보험료 평균 계산
-            prem_res = await session.execute(
-                select(
-                    PolicyPremium.policy_id,
-                    func.avg(PolicyPremium.monthly_premium).label("avg_prem"),
+            if mode == Mode.RECOMMEND:
+                # 보유 보험 조회
+                res = await session.execute(
+                    select(InsurancePolicy).where(InsurancePolicy.user_id == user_id)
                 )
-                .where(PolicyPremium.policy_id.in_([p.id for p in candidates]))
-                .group_by(PolicyPremium.policy_id)
-            )
-            avg_prem = {pid: float(v) for pid, v in prem_res}
-            min_prem = min(avg_prem.values()) if avg_prem else 0.0
-            max_prem = max(avg_prem.values()) if avg_prem else 0.0
+                user_pols = res.scalars().all()
+                if not user_pols:
+                    return ""
 
-            target_type = entities.get("product_type")
-            recs = []
-            print(candidates)
-            for cand in candidates:
-                # 적합도(Fit)
-                fit = 0.0
-                if target_type and cand.product_type == target_type:
-                    fit = 0.6
+                # 추천 후보 (user_id=1)
+                res = await session.execute(
+                    select(InsurancePolicy).where(InsurancePolicy.user_id == 1)
+                )
+                candidates = res.scalars().all()
+                if not candidates:
+                    return ""
 
-                # 보장(Coverage)
-                cov_res = await session.execute(
-                    select(CoverageItemWeight.weight).join(
-                        PolicyCoverage,
-                        CoverageItemWeight.coverage_item_id
-                        == PolicyCoverage.coverage_item_id,
-                    ).where(
-                        PolicyCoverage.policy_id == cand.id,
-                        CoverageItemWeight.product_type == cand.product_type,
+                # 후보 보험료 평균 계산
+                prem_res = await session.execute(
+                    select(
+                        PolicyPremium.policy_id,
+                        func.avg(PolicyPremium.monthly_premium).label("avg_prem"),
                     )
+                    .where(PolicyPremium.policy_id.in_([p.id for p in candidates]))
+                    .group_by(PolicyPremium.policy_id)
                 )
-                weights = [float(w) for (w,) in cov_res]
-                coverage = sum(weights) / len(weights) if weights else 0.0
+                avg_prem = {pid: float(v) for pid, v in prem_res}
+                min_prem = min(avg_prem.values()) if avg_prem else 0.0
+                max_prem = max(avg_prem.values()) if avg_prem else 0.0
 
-                # 가격(Price)
-                p = avg_prem.get(cand.id)
-                if p is not None and max_prem > min_prem:
-                    price = (max_prem - p) / (max_prem - min_prem)
-                else:
-                    price = 0.5
+                target_type = entities.get("product_type")
+                recs = []
+                print(candidates)
+                for cand in candidates:
+                    # 적합도(Fit)
+                    fit = 0.0
+                    if target_type and cand.product_type == target_type:
+                        fit = 0.6
 
-                trust = 0.5  # 고정값
-
-                # 보완성(Complementarity)
-                comps: List[float] = []
-                for up in user_pols:
-                    c_res = await session.execute(
-                        select(ComplementarityRules.effect).where(
-                            ComplementarityRules.src_product_type == up.product_type,
-                            ComplementarityRules.dst_product_type == cand.product_type,
+                    # 보장(Coverage)
+                    cov_res = await session.execute(
+                        select(CoverageItemWeight.weight).join(
+                            PolicyCoverage,
+                            CoverageItemWeight.coverage_item_id
+                            == PolicyCoverage.coverage_item_id,
+                        ).where(
+                            PolicyCoverage.policy_id == cand.id,
+                            CoverageItemWeight.product_type == cand.product_type,
                         )
                     )
-                    eff = c_res.scalar()
-                    if eff is not None:
-                        comps.append(float(eff))
-                comp_raw = sum(comps) / len(comps) if comps else 0.0
-                complementarity = (comp_raw + 1) / 2
+                    weights = [float(w) for (w,) in cov_res]
+                    coverage = sum(weights) / len(weights) if weights else 0.0
 
-                score = (fit + coverage + price + trust + complementarity) / 5
-                recs.append(
-                    {
-                        "policy": cand,
-                        "score": score,
-                        "fit": fit,
-                        "coverage": coverage,
-                        "price": price,
-                        "trust": trust,
-                        "complementarity": complementarity,
-                    }
+                    # 가격(Price)
+                    p = avg_prem.get(cand.id)
+                    if p is not None and max_prem > min_prem:
+                        price = (max_prem - p) / (max_prem - min_prem)
+                    else:
+                        price = 0.5
+
+                    trust = 0.5  # 고정값
+
+                    # 보완성(Complementarity)
+                    comps: List[float] = []
+                    for up in user_pols:
+                        c_res = await session.execute(
+                            select(ComplementarityRules.effect).where(
+                                ComplementarityRules.src_product_type == up.product_type,
+                                ComplementarityRules.dst_product_type == cand.product_type,
+                            )
+                        )
+                        eff = c_res.scalar()
+                        if eff is not None:
+                            comps.append(float(eff))
+                    comp_raw = sum(comps) / len(comps) if comps else 0.0
+                    complementarity = (comp_raw + 1) / 2
+
+                    score = (fit + coverage + price + trust + complementarity) / 5
+                    recs.append(
+                        {
+                            "policy": cand,
+                            "score": score,
+                            "fit": fit,
+                            "coverage": coverage,
+                            "price": price,
+                            "trust": trust,
+                            "complementarity": complementarity,
+                        }
+                    )
+
+                recs.sort(key=lambda r: r["score"], reverse=True)
+                top = recs[:3]
+                lines = ["[DB RECOMMENDATION]"]
+                for idx, r in enumerate(top, 1):
+                    pol = r["policy"]
+                    ptype = getattr(pol.product_type, "value", pol.product_type) or ""
+                    lines.append(
+                        f"{idx}. {ptype} ({pol.policy_id or ''}) score {r['score']:.2f} - "
+                        f"Fit {r['fit']:.2f}, Coverage {r['coverage']:.2f}, Price {r['price']:.2f}, "
+                        f"Trust {r['trust']:.2f}, Complementarity {r['complementarity']:.2f}"
+                    )
+                return "\n".join(lines)
+            elif mode == Mode.REFUND:
+                res = await session.execute(
+                    select(InsurancePolicy.policy_id).where(InsurancePolicy.user_id == user_id)
+                )
+                pol_id = res.scalar()
+                if pol_id is None:
+                    return ""
+                res = await session.execute(
+                    select(InsurancePolicy.id).where(InsurancePolicy.policy_id == pol_id).order_by(InsurancePolicy.id)
+                )
+                pol_id = res.scalar()
+                if pol_id is None:
+                    return ""
+                res = await session.execute(
+                    select(PolicyCoverage)
+                    .options(selectinload(PolicyCoverage.coverage_item))
+                    .where(PolicyCoverage.policy_id == pol_id)
+                    .order_by(PolicyCoverage.coverage_order)
                 )
 
-            recs.sort(key=lambda r: r["score"], reverse=True)
-            top = recs[:3]
-            lines = ["[DB RECOMMENDATION]"]
-            for idx, r in enumerate(top, 1):
-                pol = r["policy"]
-                ptype = getattr(pol.product_type, "value", pol.product_type) or ""
-                lines.append(
-                    f"{idx}. {ptype} ({pol.policy_id or ''}) score {r['score']:.2f} - "
-                    f"Fit {r['fit']:.2f}, Coverage {r['coverage']:.2f}, Price {r['price']:.2f}, "
-                    f"Trust {r['trust']:.2f}, Complementarity {r['complementarity']:.2f}"
-                )
-            return "\n".join(lines)
+                covs = res.scalars().all()
+                if not covs:
+                    return ""
+                lines = ["[DB COVERAGE]"]
+                for cov in covs:
+                    name = getattr(cov.coverage_item, "name", "") or ""
+                    parts: List[str] = []
+                    if cov.segment:
+                        parts.append(cov.segment)
+                    if cov.benefit_type:
+                        parts.append(cov.benefit_type)
+                    if cov.coinsurance_pct is not None:
+                        parts.append(f"자기부담 {float(cov.coinsurance_pct) * 100:.0f}%")
+                    if cov.deductible_min is not None:
+                        parts.append(f"공제 {int(cov.deductible_min):,}원")
+                    if cov.per_visit_limit is not None:
+                        parts.append(f"1회 {int(cov.per_visit_limit):,}원")
+                    if cov.annual_limit is not None:
+                        parts.append(f"연간 {int(cov.annual_limit):,}원")
+                    if cov.frequency_limit is not None:
+                        period = "연" if cov.frequency_period == "year" else "계약"
+                        parts.append(f"횟수 {cov.frequency_limit}회/{period}")
+                    detail = ", ".join(parts)
+                    ref = f" [근거:{cov.source_ref}]" if cov.source_ref else ""
+                    lines.append(f"- {name}: {detail}{ref}")
+                return "\n".join(lines)
+            else:
+                return ""
     except Exception as e:
         logger.warning("policy_db_lookup failed: %s", e)
         return ""
