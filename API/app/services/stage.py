@@ -68,12 +68,18 @@ async def prepare_llm_request(
     except Exception as e:
         await chatCRUD.update_message_state(db, chat_id, "failed")
         raise
-    db_block = await _policy_db_lookup(mode=mode, entities=entities, user_text=text)
-    db_hit = bool((db_block or "").strip())
-
+    db_hit = False
+    db_block = ""
+    if mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND):
+        db_block = await _policy_db_lookup(
+            mode=mode, entities=entities, user_text=text, user_id=user_id
+        )
+        db_hit = bool((db_block or "").strip())
+    print("======DB BLOCK======")
+    print(db_block)
     # 4) (필요 시) RAG 보조
     rag_parts: List[str] = []
-    if use_retrieval and not db_hit and mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND):
+    if use_retrieval and db_hit and mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND):
         os_block = await asyncio.to_thread(
             retrieve,
             mode=mode,
@@ -111,6 +117,7 @@ async def prepare_llm_request(
         await chatCRUD.update_message_state(db, chat_id, "failed")
         raise
     context = "\n\n".join([s for s in [db_block, rag_block, benefit_ctx] if s]).strip()
+    print(context)
     messages = build_messages(mode=mode, user_text=text, context=context)
 
     logger.info(

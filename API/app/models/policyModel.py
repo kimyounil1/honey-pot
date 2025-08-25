@@ -56,4 +56,4 @@ class InsurancePolicy(Base):
     user = relationship(_User, back_populates="insurance_policies")
 
     def __repr__(self) -> str:
-        return f"<InsurancePolicy id={self.id} insurer={self.insurer} code={self.product_code}>"
+        return f"<InsurancePolicy id={self.id} insurer={self.insurer} code={self.product_code} policy_id={self.policy_id} product_type={self.product_type}>"

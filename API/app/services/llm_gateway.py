@@ -25,7 +25,8 @@ def run_classifier_llm(user_text: str, attachments_meta: Optional[Dict[str, Any]
         "\"confidence\":0.0,"
         "\"entities\":{"
         "  \"insurer\":null,\"product\":null,\"version\":null,"
-        "  \"topic\":null,\"icd10_candidates\":[]"
+        "  \"topic\":null,\"icd10_candidates\":[],"
+        "  \"product_type\":null,\"focus_topics\":[]"
         "},"
         "\"retrieval_suggestion\":\"on|off|auto\","
         "\"reasons\":\"...\","
@@ -58,7 +59,15 @@ def run_classifier_llm(user_text: str, attachments_meta: Optional[Dict[str, Any]
         return {
             "primary_flow": "GENERAL",
             "confidence": 0.3,
-            "entities": {},
+            "entities": {
+                "insurer": None,
+                "product": None,
+                "version": None,
+                "topic": None,
+                "icd10_candidates": [],
+                "product_type": None,
+                "focus_topics": [],
+            },
             "retrieval_suggestion": "auto",
             "reasons": "parse_error",
             "tags": []

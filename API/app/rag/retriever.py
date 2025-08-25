@@ -10,7 +10,15 @@ from app.services.common import Mode
 from app.config import settings
 from typing import List, Dict, Any
 from starlette.concurrency import run_in_threadpool
-
+from sqlalchemy import select, func
+from app.database import AsyncSessionLocal
+from app.models import (
+    InsurancePolicy,
+    PolicyCoverage,
+    CoverageItemWeight,
+    PolicyPremium,
+    ComplementarityRules,
+)
 # watsonx.ai (pip install ibm-watsonx-ai)
 try:
     from ibm_watsonx_ai import Credentials, APIClient
@@ -348,13 +356,117 @@ def retrieve(
 #
 from typing import Dict, Any
 
-async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: str) -> str:
+async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: str,user_id: int) -> str:
     """
     TODO: 실제 약관 DB 직조회 로직으로 교체.
     현재는 빈 문자열을 반환하여 stage에서 RAG 보조를 시도하게 둡니다.
     """
     try:
-        return ""
+        if mode != Mode.RECOMMEND:
+            return ""
+
+        async with AsyncSessionLocal() as session:
+            # 보유 보험 조회
+            res = await session.execute(
+                select(InsurancePolicy).where(InsurancePolicy.user_id == user_id)
+            )
+            user_pols = res.scalars().all()
+            if not user_pols:
+                return ""
+
+            # 추천 후보 (user_id=1)
+            res = await session.execute(
+                select(InsurancePolicy).where(InsurancePolicy.user_id == 1)
+            )
+            candidates = res.scalars().all()
+            if not candidates:
+                return ""
+
+            # 후보 보험료 평균 계산
+            prem_res = await session.execute(
+                select(
+                    PolicyPremium.policy_id,
+                    func.avg(PolicyPremium.monthly_premium).label("avg_prem"),
+                )
+                .where(PolicyPremium.policy_id.in_([p.id for p in candidates]))
+                .group_by(PolicyPremium.policy_id)
+            )
+            avg_prem = {pid: float(v) for pid, v in prem_res}
+            min_prem = min(avg_prem.values()) if avg_prem else 0.0
+            max_prem = max(avg_prem.values()) if avg_prem else 0.0
+
+            target_type = entities.get("product_type")
+            recs = []
+            print(candidates)
+            for cand in candidates:
+                # 적합도(Fit)
+                fit = 0.0
+                if target_type and cand.product_type == target_type:
+                    fit = 0.6
+
+                # 보장(Coverage)
+                cov_res = await session.execute(
+                    select(CoverageItemWeight.weight).join(
+                        PolicyCoverage,
+                        CoverageItemWeight.coverage_item_id
+                        == PolicyCoverage.coverage_item_id,
+                    ).where(
+                        PolicyCoverage.policy_id == cand.id,
+                        CoverageItemWeight.product_type == cand.product_type,
+                    )
+                )
+                weights = [float(w) for (w,) in cov_res]
+                coverage = sum(weights) / len(weights) if weights else 0.0
+
+                # 가격(Price)
+                p = avg_prem.get(cand.id)
+                if p is not None and max_prem > min_prem:
+                    price = (max_prem - p) / (max_prem - min_prem)
+                else:
+                    price = 0.5
+
+                trust = 0.5  # 고정값
+
+                # 보완성(Complementarity)
+                comps: List[float] = []
+                for up in user_pols:
+                    c_res = await session.execute(
+                        select(ComplementarityRules.effect).where(
+                            ComplementarityRules.src_product_type == up.product_type,
+                            ComplementarityRules.dst_product_type == cand.product_type,
+                        )
+                    )
+                    eff = c_res.scalar()
+                    if eff is not None:
+                        comps.append(float(eff))
+                comp_raw = sum(comps) / len(comps) if comps else 0.0
+                complementarity = (comp_raw + 1) / 2
+
+                score = (fit + coverage + price + trust + complementarity) / 5
+                recs.append(
+                    {
+                        "policy": cand,
+                        "score": score,
+                        "fit": fit,
+                        "coverage": coverage,
+                        "price": price,
+                        "trust": trust,
+                        "complementarity": complementarity,
+                    }
+                )
+
+            recs.sort(key=lambda r: r["score"], reverse=True)
+            top = recs[:3]
+            lines = ["[DB RECOMMENDATION]"]
+            for idx, r in enumerate(top, 1):
+                pol = r["policy"]
+                ptype = getattr(pol.product_type, "value", pol.product_type) or ""
+                lines.append(
+                    f"{idx}. {ptype} ({pol.policy_id or ''}) score {r['score']:.2f} - "
+                    f"Fit {r['fit']:.2f}, Coverage {r['coverage']:.2f}, Price {r['price']:.2f}, "
+                    f"Trust {r['trust']:.2f}, Complementarity {r['complementarity']:.2f}"
+                )
+            return "\n".join(lines)
     except Exception as e:
         logger.warning("policy_db_lookup failed: %s", e)
         return ""
