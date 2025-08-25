@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, LogOut, ChevronDown, ChevronRight, ChevronUp, Droplet } from 'lucide-react'
+import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, LogOut, ChevronDown, ChevronRight, ChevronUp, Droplet, Files, Webhook, Upload } from 'lucide-react'
 import { sendChatRequest } from "@/lib/sendChatRequst"
 import { v4 as uuidv4 } from 'uuid'
 import NewChatModal from "./new-chat-modal"
@@ -18,6 +18,7 @@ import FAQModal from "./faq-modal"
 import PolicyAnalysisModal from "./policy-analysis-modal"
 import RefundFinderModal from "./refund-finder-modal"
 import RecommendationModal from "./recommendation-modal"
+import FileSubmitModal from "./file-submit-modal"
 
 interface ChatSession {
   id: number;
@@ -32,6 +33,10 @@ interface Message {
   id: string
   role: 'user' | 'assistant';
   content: string;
+  attachment?: {
+    product_id?: string | null;
+    disease_code?: string | null;
+  }
 }
 
 type NonDoneState =
@@ -41,11 +46,58 @@ type NonDoneState =
   | "searching"
   | "building"
   | "failed";
-
 type MessageState = NonDoneState | "done" | "complete";
 const TERMINAL_STATES: MessageState[] = ["done", "failed", "complete"];
 const isTerminal = (s: MessageState) => TERMINAL_STATES.includes(s);
 
+type BannerType = 'info' | 'success' | 'error' | 'loading'
+function TopBanner({
+  open,
+  text,
+  type = 'info',
+}: {
+  open: boolean;
+  text: string;
+  type?: BannerType;
+}) {
+  if (!open) return null;
+  const base =
+    'fixed top-4 left-1/2 -translate-x-1/2 z-50 ' +
+    // 내용폭 / 여백 / 둥근 / 그림자 / 유리효과
+    'max-w-md w-[calc(100%-2rem)] px-4 py-2 rounded-xl shadow-lg ' +
+    'backdrop-blur-lg ring-1 ring-white/10 ' +
+    // 등장/퇴장 애니메이션
+    'transition-all duration-300 ease-out animate-in fade-in slide-in-from-top-2'
+  const color =
+    type === 'success'
+      ? 'bg-emerald-600/60 text-white'
+      : type === 'error'
+      ? 'bg-red-600/60 text-white'
+      : type === 'loading'
+      ? 'bg-sky-600/60 text-white'
+      : 'bg-slate-800/60 text-white'
+
+  return (
+    <div className={`${base} ${color}`} role="status" aria-live="polite" style={{ pointerEvents: 'auto' }}>
+      <div className="flex items-center gap-2 text-sm font-medium">
+        {/* 선택: 타입별 아이콘 살짝 */}
+        {type === 'success' && (
+          <span aria-hidden className="i-lucide:check-circle-2 size-4" />
+        )}
+        {type === 'error' && (
+          <span aria-hidden className="i-lucide:triangle-alert size-4" />
+        )}
+        {type === 'loading' && (
+          <span
+            aria-hidden
+            className="i-lucide:loader-2 size-4 animate-spin"
+          />
+        )}
+        <span className="truncate">{text}</span>
+      </div>
+    </div>
+  );
+}
 export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showNewChatModal, setShowNewChatModal] = useState(false)
@@ -55,6 +107,22 @@ export default function ChatPage() {
   const [showPolicyAnalysisModal, setShowPolicyAnalysisModal] = useState(false)
   const [showRefundFinderModal, setShowRefundFinderModal] = useState(false)
   const [showRecommendationModal, setShowRecommendationModal] = useState(false)
+  const [showFileSubmitModal, setShowFileSubmitModal] = useState(false)
+
+  // 배너 표시
+  const [bannerOpen, setBannerOpen] = useState(false);
+  const [bannerText, setBannerText] = useState('');
+  const [bannerType, setBannerType] = useState<BannerType>('info');
+
+  function showBanner(text: string, type: BannerType = 'info') {
+    setBannerText(text);
+    setBannerType(type);
+    setBannerOpen(true);
+  }
+
+  function hideBanner() {
+    setBannerOpen(false);
+  }
 
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([])
 
@@ -70,6 +138,7 @@ export default function ChatPage() {
   const [lastMessage, setLastMessage] = useState<Message | null>(null)
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
   const [messageState, setMessageState] = useState<MessageState>()
 
   const STATE_TEXT: Record<NonDoneState, string> = {
@@ -81,6 +150,9 @@ export default function ChatPage() {
     failed: "에러 발생",
   };
 
+  // 파일 업로드 응답 임시보관
+  const pendingUploadRef = useRef<any | null>(null)
+
 //   // chatId 변경 시 히스토리 로드
 //   useEffect(() => {
 //     if (chatId) {
@@ -90,68 +162,67 @@ export default function ChatPage() {
 //     }
 //   }, [chatId]);
 
-  // 상태 폴링
-  //########### 두번째부터는 route 안타니까 useEffect도 안 타버림. ######################
-  
-useEffect(() => {
-  if (!chatId) return;
+  // 메세지 상태 폴링(페이지 로딩시)
+  useEffect(() => {
+    if (!chatId) return;
 
-  let active = true;
-  let timeoutId: number | undefined;
-  const controller = new AbortController();
+    let active = true;
+    let timeoutId: number | undefined;
+    const controller = new AbortController();
 
-  const tick = async () => {
-    if (!active) return;
+    const tick = async () => {
+      if (!active) return;
 
-    try {
-      const res = await fetch(`/api/chat/${chatId}/messageState?t=${Date.now()}`, {
-        cache: "no-store",
-        headers: { "Cache-Control": "no-cache" },
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`API Error: ${res.status}`);
-      const data = await res.json();
-      const state = data.state as MessageState;
+      try {
+        const res = await fetch(`/api/chat/${chatId}/messageState?t=${Date.now()}`, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache" },
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        const data = await res.json();
+        const state = data.state as MessageState;
 
-      setMessageState(state);
+        setMessageState(state);
 
-      if (isTerminal(state)) {
-        // 완료 시: 히스토리 갱신 + 서버에 complete 통지(있다면)
-        await fetchChatHistory(chatId);
-        active = false;
+        if (isTerminal(state)) {
+          // 완료 시: 히스토리 갱신 + 서버에 complete 통지(있다면)
+          await fetchChatHistory(chatId);
+          active = false;
 
-        // 이미 서버가 complete를 주는 상황이면 아래 호출은 선택사항
-        // 실패(Abort 등)하더라도 폴링 종료에는 영향 없게 try/catch
-        try {
-          await fetch(`/api/chat/${chatId}/messageState/complete?t=${Date.now()}`, {
-            cache: "no-store",
-            headers: { "Cache-Control": "no-cache" },
-            signal: controller.signal,
-          });
-        } catch {}
-        return;
+          // 이미 서버가 complete를 주는 상황이면 아래 호출은 선택사항
+          // 실패(Abort 등)하더라도 폴링 종료에는 영향 없게 try/catch
+          try {
+            await fetch(`/api/chat/${chatId}/messageState/complete?t=${Date.now()}`, {
+              cache: "no-store",
+              headers: { "Cache-Control": "no-cache" },
+              signal: controller.signal,
+            });
+          } catch {}
+          return;
+        }
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          console.error(e);
+        }
+        // 에러여도 active가 true면 재시도 예약
       }
-    } catch (e: any) {
-      if (e?.name !== "AbortError") {
-        console.error(e);
+
+      if (active) {
+        timeoutId = window.setTimeout(tick, 300);
       }
-      // 에러여도 active가 true면 재시도 예약
-    }
+    };
 
-    if (active) {
-      timeoutId = window.setTimeout(tick, 300);
-    }
-  };
+    tick();
 
-  tick();
-
-  return () => {
-    active = false;
-    if (timeoutId) clearTimeout(timeoutId);
-    controller.abort();
-  };
-}, [chatId]);
+    return () => {
+      active = false;
+      if (timeoutId) clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [chatId]);
   
+  // 메세지 전송 클릭시 상태 폴링
   const startPolling = (chatId: number) => {
     let active = true;
     const controller = new AbortController(); // cleanup에서만 사용
@@ -201,6 +272,55 @@ useEffect(() => {
   };
   };
 
+  // 🚩TODO: 약관분석 modal 관련
+// const onAnalyze = async (files: File[], textInput?: string) => {
+//     // 1) (선택) 파일을 먼저 업로드하여 attachment_ids를 얻는 백엔드라면 여기에 업로드 단계 추가
+//     // const attachRes = await fetch('/api/files', {...});
+//     // const { attachment_ids } = await attachRes.json();
+
+//     // 2) /api/chat/ask 로 FormData 전송
+//     const fd = new FormData();
+//     fd.append("text", textInput ?? "");
+//     // 백엔드 모델이 form 필드명을 어떻게 기대하는지에 맞추세요.
+//     // 파일을 직접 받는다면:
+//     files.forEach((f) => fd.append("file", f)); // 여러 개인 경우 백엔드에 맞춰 "files[]" 등으로
+//     // chat_id가 이미 있으면 넘겨주고 없으면 first_message=true
+//     if (chatId) {
+//       fd.append("chat_id", String(chatId));
+//       fd.append("first_message", "false");
+//     } else {
+//       fd.append("first_message", "true");
+//     }
+//     // attachment_ids 를 쓰는 백엔드라면:
+//     // if (attachment_ids?.length) fd.append("attachment_ids", JSON.stringify(attachment_ids));
+
+//     const res = await fetch(`/api/chat/ask?t=${Date.now()}`, {
+//       method: "POST",
+//       body: fd,
+//       // 캐싱 방지
+//       headers: { "Cache-Control": "no-cache" },
+//     });
+
+//     if (!res.ok) {
+//       const msg = await res.text();
+//       throw new Error(`Ask API Error: ${msg || res.status}`);
+//     }
+
+//     const data = await res.json();
+//     const nextChatId: number = data.chat_id ?? chatId!;
+//     if (!nextChatId) throw new Error("chat_id를 확인할 수 없습니다.");
+
+//     // 3) URL 정합성 맞추기 (새로 생성된 채팅이면 /chat/{id}로 이동)
+//     if (!chatId || String(chatId) !== String(nextChatId)) {
+//       setChatId(nextChatId);
+//       router.push(`/chat/${nextChatId}`);
+//     }
+
+//     // 4) 즉시 폴링 시작 (화면엔 기존 useEffect 폴링과 충돌 없음)
+//     startPolling(nextChatId);
+//   };
+
+
   const fetchChatHistory = async (id: number, opts: { allowEmptyReplace?: boolean } = {}) => {
     const { allowEmptyReplace = true } = opts;
     setIsLoading(true);
@@ -239,7 +359,8 @@ useEffect(() => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    const userMessage: Message = { id: uuidv4(), role: 'user', content: input, };
+    hideBanner()
+    const userMessage: Message = { id: uuidv4(), role: 'user', content: input, attachment: pendingUploadRef.current ?? undefined, };
     const placeholderId = uuidv4();
     const assistantPlaceholder: Message = { id: placeholderId, role: 'assistant', content: '', };
     setMessages(prev => [...prev, userMessage]);
@@ -251,11 +372,9 @@ useEffect(() => {
     cleanupRef.current?.();
 
     // 새로운 polling 시작
-    // console.log(typeof(chatId))
     if(chatId !== undefined){
         cleanupRef.current = startPolling(chatId);
     }
-
 
     try {
       const response = await sendChatRequest([...messages, userMessage], chatId);
@@ -265,7 +384,6 @@ useEffect(() => {
         router.push(`/chat/${response.chat_id}`);
         fetchChatSessions?.();
       }
-      // ################ 이 밑의 모든 내용들이 저 response랑 별개로 chat_id 기반으로 useEffect #####################
       if (response?.answer) {
         const assistantMessage: Message = {
           id: placeholderId,
@@ -275,6 +393,7 @@ useEffect(() => {
         setLastMessage(null);
         setMessages(prev => [...prev, assistantMessage]);
       }
+      pendingUploadRef.current = null;
     } catch (err) {
       console.error(err);
       const errorMessage: Message = {
@@ -294,11 +413,6 @@ useEffect(() => {
   const [myInsuranceCompleted, setMyInsuranceCompleted] = useState(false)
   const [selectedInsuranceCompanies, setSelectedInsuranceCompanies] = useState<string[]>([])
   const [showAllQuickQuestions, setShowAllQuickQuestions] = useState(false)
-
-  const handleLogout = async () => {
-    await fetch("/api/logout");
-    router.push("/");
-  };
 
   const handleNewChat = () => {
     setShowNewChatModal(true)
@@ -411,7 +525,7 @@ useEffect(() => {
     if (companies === null) {
       setMyInsuranceCompleted(true)
       setSelectedInsuranceCompanies([])
-    } else {
+    } else {       
       setSelectedInsuranceCompanies(companies)
       setMyInsuranceCompleted(true)
     }
@@ -433,6 +547,42 @@ useEffect(() => {
 
   const handleRecommendationComplete = (recommendationType: string) => {
     handleStartChatFromModal("general", `보험 추천 (${recommendationType})`, `"${recommendationType}"에 대한 보험 추천을 완료했습니다. 결과에 대해 더 궁금한 점이 있습니다.`)
+  }
+
+  const handleFileSubmit = async (file: File) => {
+    try {
+      const fd = new FormData()
+      fd.append("file", file)           // 단일 파일
+      showBanner("파일 첨부중...", "loading")
+      
+      const uploadRes = await fetch("/api/file", { method: "POST", body: fd })
+      const ct = uploadRes.headers.get("content-type") ?? ""
+      const raw = await uploadRes.text()
+
+      if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`)
+      showBanner("파일 첨부 완료", "success")
+
+      // 성공: JSON이면 파싱 시도, 아니면 raw 그대로 사용
+      let data: any = raw
+      if(ct.includes("application/json")){
+        try {
+          data = JSON.parse(raw)
+        } catch(e){
+          console.warn("Failed to parse JSON, using raw text: ", raw)
+        }
+      }
+      // 예: 백엔드(oct.py) 응답 모델 대응
+      if (data?.result_code === "SUCCESS") {
+        pendingUploadRef.current = {
+        product_id: data.product_id ?? null,
+        disease_code: data.disease_code ?? null,
+      }
+    }
+    } catch (e) {
+      window.alert(e)
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   const quickStartQuestions = [
@@ -504,6 +654,7 @@ useEffect(() => {
 
   return (
     <div className="flex h-screen bg-gray-50">
+      <TopBanner open={bannerOpen} text={bannerText} type={bannerType} />
       {/* Sidebar */}
       <div
         className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 w-80 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col`}
@@ -775,18 +926,30 @@ useEffect(() => {
         </div>
 
         <div className="border-t bg-white p-4">
+          
           <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
             <div className="flex space-x-4">
               <Input
                 value={input}
                 onChange={handleInputChange}
-                placeholder="보험에 대해 궁금한 것을 물어보세요..."
+                placeholder="보험에 대해 `궁금한 것을 물어보세요..."
                 className="flex-1"
                 disabled={isLoading}
               />
               <Button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault()
+                  setShowFileSubmitModal(true)}
+                }
+                disabled={isUploading}
+                className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600"
+              >
+                <Upload className="h-4 w-4" />
+              </Button>
+              <Button
                 type="submit"
-                disabled={isLoading || !input?.trim()}
+                disabled={isLoading || isUploading || !input?.trim()}
                 className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600"
               >
                 <Send className="h-4 w-4" />
@@ -804,6 +967,7 @@ useEffect(() => {
       )}
 
       {/* Modals */}
+      <FileSubmitModal isOpen={showFileSubmitModal} onClose={() => setShowFileSubmitModal(false)} onSend={(files) => handleFileSubmit(files)}/>
       <NewChatModal isOpen={showNewChatModal} onClose={() => setShowNewChatModal(false)} onStartChat={handleStartChatFromModal} />
       <InsuranceCompanyModal isOpen={showInsuranceModal} onClose={() => setShowInsuranceModal(false)} onComplete={(c) => { setShowInsuranceModal(false); if (c) setSelectedInsuranceCompanies(c); }} initialSelectedCompanies={selectedInsuranceCompanies} onStartChat={handleStartChatFromModal} />
       <ProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />

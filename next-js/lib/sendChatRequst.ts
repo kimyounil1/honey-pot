@@ -1,5 +1,5 @@
 // export async function sendChatRequest(newMessages: any[], currentChatId: number | undefined){
-export async function sendChatRequest(message: any[], chatId?: number){
+export async function sendChatRequest(message: any[], chatId?: number,){
   const url = chatId ? `/api/chat/${chatId}` : `/api/chat`
     try {
         const response = await fetch(url, {
@@ -8,7 +8,7 @@ export async function sendChatRequest(message: any[], chatId?: number){
         body: JSON.stringify({
           messages: message.map(({id, ...rest }) => rest),
           chat_id: chatId,
-          attachment_ids: [],
+          // attachment: userMessage.attachment ?? null,
         }),
       })
       if (!response.ok || !response.body) {
