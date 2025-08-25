@@ -20,7 +20,7 @@ export async function GET() {
         return token;
     }
 
-    const fastApiResponse = await fetch(`http://API:8000/chat/chats`, {
+    const fastApiResponse = await fetch(`http://API:8000/policies/insurers`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',

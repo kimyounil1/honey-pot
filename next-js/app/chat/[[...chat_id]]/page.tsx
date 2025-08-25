@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, LogOut, ChevronDown, ChevronRight, ChevronUp, Droplet, Files, Webhook, Upload } from 'lucide-react'
 import { sendChatRequest } from "@/lib/sendChatRequst"
 import { v4 as uuidv4 } from 'uuid'
-import NewChatModal from "./new-chat-modal"
+// import NewChatModal from "./new-chat-modal"
 import InsuranceCompanyModal from "./insurance-company-modal"
 import ProfileModal from "./profile-modal"
 import FAQModal from "./faq-modal" 
@@ -100,7 +100,7 @@ function TopBanner({
 }
 export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [showNewChatModal, setShowNewChatModal] = useState(false)
+  // const [showNewChatModal, setShowNewChatModal] = useState(false)
   const [showInsuranceModal, setShowInsuranceModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [showFAQModal, setShowFAQModal] = useState(false)
@@ -108,6 +108,7 @@ export default function ChatPage() {
   const [showRefundFinderModal, setShowRefundFinderModal] = useState(false)
   const [showRecommendationModal, setShowRecommendationModal] = useState(false)
   const [showFileSubmitModal, setShowFileSubmitModal] = useState(false)
+  const [selectedPolicy, setSelectedPolicy] = useState<{ policy_id: string } | null>(null)
 
   // 배너 표시
   const [bannerOpen, setBannerOpen] = useState(false);
@@ -414,10 +415,6 @@ export default function ChatPage() {
   const [selectedInsuranceCompanies, setSelectedInsuranceCompanies] = useState<string[]>([])
   const [showAllQuickQuestions, setShowAllQuickQuestions] = useState(false)
 
-  const handleNewChat = () => {
-    setShowNewChatModal(true)
-  }
-
   const handleStartChatFromModal = async (type: string, title?: string, initialMessage?: string) => {
     if (!initialMessage || isLoading) return;
 
@@ -675,7 +672,7 @@ export default function ChatPage() {
           <div className="text-center">
             <Button
               className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 justify-center"
-              onClick={handleNewChat}
+              onClick={resetToHome}
             >
               <Plus className="mr-2 h-4 w-4" />새 보험 채팅
             </Button>
@@ -968,8 +965,8 @@ export default function ChatPage() {
 
       {/* Modals */}
       <FileSubmitModal isOpen={showFileSubmitModal} onClose={() => setShowFileSubmitModal(false)} onSend={(files) => handleFileSubmit(files)}/>
-      <NewChatModal isOpen={showNewChatModal} onClose={() => setShowNewChatModal(false)} onStartChat={handleStartChatFromModal} />
-      <InsuranceCompanyModal isOpen={showInsuranceModal} onClose={() => setShowInsuranceModal(false)} onComplete={(c) => { setShowInsuranceModal(false); if (c) setSelectedInsuranceCompanies(c); }} initialSelectedCompanies={selectedInsuranceCompanies} onStartChat={handleStartChatFromModal} />
+      {/* <NewChatModal isOpen={showNewChatModal} onClose={() => setShowNewChatModal(false)} onStartChat={handleStartChatFromModal} /> */}
+      <InsuranceCompanyModal isOpen={showInsuranceModal} onClose={() => setShowInsuranceModal(false)} onDone={(p) => { setShowInsuranceModal(false); if (p) setSelectedPolicy(p); }} />
       <ProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
       <FAQModal isOpen={showFAQModal} onClose={() => setShowFAQModal(false)} onSelectQuestion={handleFAQSelect} />
       <PolicyAnalysisModal isOpen={showPolicyAnalysisModal} onClose={() => setShowPolicyAnalysisModal(false)} onAnalyze={(files, text) => handlePolicyAnalysis(files, text)} />

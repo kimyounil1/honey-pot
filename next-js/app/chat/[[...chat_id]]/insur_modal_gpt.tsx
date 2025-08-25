@@ -8,20 +8,28 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Loader2, ChevronLeft, Plus, Check } from "lucide-react";
 
-// --- Types -----------------------------------------------------------------
 export type InsurersResponse = { insurers: string[] };
 
 export type InsurancePickerModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onDone?: (payload: { policy_id: string }) => void;
-  onSubmit?: (payload: { policy_id: string }) => Promise<string[]>
+
+  /** 제출이 끝난 뒤 부모 쪽에 알려주고 싶을 때 */
+  onDone?: (payload: { insurer: string; policyId: string }) => void;
+
+  /** 2단계에서 policy id 목록을 불러오는 함수(없으면 기본 fetch 사용) */
   fetchPolicyIdsByInsurer?: (insurer: string) => Promise<string[]>;
+
+  /** 1단계 보험사 목록 엔드포인트 */
   insurersEndpoint?: string;
-  submitEndpoint?: string;
+
+  /** 제출 콜백(존재하면 이것이 최우선) */
+  onSubmit?: (payload: { insurer: string; policyId: string }) => Promise<void>;
+
+  /** onSubmit이 없으면 이 엔드포인트로 POST 제출 */
+  submitEndpoint?: string; // e.g. "/api/user/policies/attach"
 };
 
-// --- Component --------------------------------------------------------------
 export default function InsurancePickerModal({
   isOpen,
   onClose,
@@ -29,32 +37,31 @@ export default function InsurancePickerModal({
   fetchPolicyIdsByInsurer,
   insurersEndpoint = "/api/policies/insurers",
   onSubmit,
-  submitEndpoint = `/api/policies/submit`
+  submitEndpoint = "/api/policies/attach",
 }: InsurancePickerModalProps) {
-  // UI steps
   const [step, setStep] = useState<1 | 2>(1);
 
-  // Insurer list
+  // 1단계: 보험사
   const [insurers, setInsurers] = useState<string[] | null>(null);
   const [insurersError, setInsurersError] = useState<string | null>(null);
   const [insurersLoading, setInsurersLoading] = useState(false);
   const [insurerQuery, setInsurerQuery] = useState("");
 
-  // Selection state
+  // 선택 상태
   const [selectedInsurer, setSelectedInsurer] = useState<string | null>(null);
 
-  // Policy IDs by chosen insurer
+  // 2단계: policy id
   const [policyIds, setPolicyIds] = useState<string[] | null>(null);
   const [policyIdsError, setPolicyIdsError] = useState<string | null>(null);
   const [policyIdsLoading, setPolicyIdsLoading] = useState(false);
   const [policyQuery, setPolicyQuery] = useState("");
   const [selectedPolicyId, setSelectedPolicyId] = useState<string | null>(null);
 
-  // submitting state
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
+  // 제출 상태
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Reset internal state whenever the dialog opens
+  // 열릴 때 초기화 + 보험사 로드
   useEffect(() => {
     if (!isOpen) return;
     setStep(1);
@@ -66,7 +73,6 @@ export default function InsurancePickerModal({
     setSubmitError(null);
     setSubmitting(false);
 
-    // fetch insurers on open
     let cancelled = false;
     (async () => {
       setInsurersLoading(true);
@@ -82,31 +88,31 @@ export default function InsurancePickerModal({
         if (!cancelled) setInsurersLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
     };
   }, [isOpen, insurersEndpoint]);
 
-  // Filtered views
+  // 필터링
   const filteredInsurers = useMemo(() => {
     const q = insurerQuery.trim().toLowerCase();
-    if (!insurers) return [] as string[];
+    if (!insurers) return [];
     if (!q) return insurers;
     return insurers.filter((n) => n.toLowerCase().includes(q));
   }, [insurers, insurerQuery]);
 
   const filteredPolicyIds = useMemo(() => {
     const q = policyQuery.trim().toLowerCase();
-    if (!policyIds) return [] as string[];
+    if (!policyIds) return [];
     if (!q) return policyIds;
     return policyIds.filter((id) => id.toLowerCase().includes(q));
   }, [policyIds, policyQuery]);
 
-  // Step transitions
+  // 단계 전환
   const handleChooseInsurer = async (insurer: string) => {
     setSelectedInsurer(insurer);
     setStep(2);
-    // Load policy IDs for the chosen insurer
     setPolicyIds(null);
     setPolicyIdsError(null);
     setPolicyIdsLoading(true);
@@ -120,10 +126,12 @@ export default function InsurancePickerModal({
           cache: "no-store",
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json()
-        ids = Array.isArray(json?.policy_ids) 
-          ? json.policy_ids : Array.isArray(json?.policies) 
-          ? json.policies : [];
+        const json = await res.json();
+        ids = Array.isArray(json?.policy_ids)
+          ? json.policy_ids
+          : Array.isArray(json?.policies)
+          ? json.policies
+          : [];
       }
       setPolicyIds(ids);
     } catch (e: any) {
@@ -144,15 +152,17 @@ export default function InsurancePickerModal({
     }
   };
 
+  // 리스트에서 “선택만”
   const handlePickPolicy = (policyId: string) => {
     setSelectedPolicyId((prev) => (prev === policyId ? null : policyId));
   };
 
-  const handlePolicySubmit = async () => {
+  // 최종 제출
+  const handleSubmit = async () => {
     if (!selectedInsurer || !selectedPolicyId) return;
-    const payload = { policy_id: selectedPolicyId }
-    setSubmitting(true)
-    setSubmitError(null)
+    const payload = { insurer: selectedInsurer, policyId: selectedPolicyId };
+    setSubmitting(true);
+    setSubmitError(null);
     try {
       if (onSubmit) {
         await onSubmit(payload);
@@ -163,8 +173,6 @@ export default function InsurancePickerModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        console.log("######## [DEBUG] #########")
-        console.log(res)
         if (!res.ok) {
           const txt = await res.text().catch(() => "");
           throw new Error(`Submit failed: HTTP ${res.status}${txt ? ` - ${txt}` : ""}`);
@@ -180,7 +188,7 @@ export default function InsurancePickerModal({
     }
   };
 
-  // Render helpers -----------------------------------------------------------
+  // UI ----------------------------------------------------------------------
   const renderHeader = () => (
     <DialogHeader>
       <div className="flex items-center gap-2">
@@ -287,7 +295,7 @@ export default function InsurancePickerModal({
             이전
           </Button>
           <Button
-            onClick={handlePolicySubmit}
+            onClick={handleSubmit}
             variant="secondary"
             disabled={!selectedPolicyId || submitting}
           >
