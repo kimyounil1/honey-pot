@@ -11,7 +11,7 @@ import { Loader2, ChevronLeft, Plus, Check } from "lucide-react";
 // --- Types -----------------------------------------------------------------
 export type InsurersResponse = { insurers: string[] };
 
-export type InsurancePickerModalProps = {
+export type InsuranceAddModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onDone?: (payload: { policy_id: string }) => void;
@@ -22,7 +22,7 @@ export type InsurancePickerModalProps = {
 };
 
 // --- Component --------------------------------------------------------------
-export default function InsurancePickerModal({
+export default function InsuranceAddModal({
   isOpen,
   onClose,
   onDone,
@@ -30,7 +30,7 @@ export default function InsurancePickerModal({
   insurersEndpoint = "/api/policies/insurers",
   onSubmit,
   submitEndpoint = `/api/policies/submit`
-}: InsurancePickerModalProps) {
+}: InsuranceAddModalProps) {
   // UI steps
   const [step, setStep] = useState<1 | 2>(1);
 
@@ -163,8 +163,8 @@ export default function InsurancePickerModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        console.log("######## [DEBUG] #########")
-        console.log(res)
+        // console.log("######## [DEBUG] #########")
+        // console.log(res)
         if (!res.ok) {
           const txt = await res.text().catch(() => "");
           throw new Error(`Submit failed: HTTP ${res.status}${txt ? ` - ${txt}` : ""}`);
@@ -219,12 +219,8 @@ export default function InsurancePickerModal({
           <div className="text-sm text-muted-foreground">검색 결과가 없습니다.</div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {filteredInsurers.map((name) => (
-            <button
-              key={name}
-              onClick={() => handleChooseInsurer(name)}
-              className="text-left rounded-2xl border p-3 hover:shadow-sm active:scale-[0.99] transition"
-            >
+          {Array.from(new Set((filteredInsurers ?? []).map(String))).map((name) => (
+            <button key={name} onClick={() => handleChooseInsurer(name)} className="text-left rounded-2xl border p-3 hover:shadow-sm active:scale-[0.99] transition">
               <div className="font-medium">{name}</div>
               <div className="text-xs text-muted-foreground">선택하려면 클릭</div>
             </button>
@@ -237,7 +233,7 @@ export default function InsurancePickerModal({
   const renderPolicyList = () => (
     <div className="space-y-3">
       <Input
-        placeholder="증권번호/ID 검색"
+        placeholder="보험 이름으로 검색"
         value={policyQuery}
         onChange={(e) => setPolicyQuery(e.target.value)}
       />
@@ -279,10 +275,7 @@ export default function InsurancePickerModal({
 
       <Separator />
       <div className="flex items-center justify-between">
-        <div className="text-xs text-muted-foreground">
-          원하는 항목이 없다면 백엔드 동기화를 확인하세요.
-        </div>
-        <div className="space-x-2">
+        <div className="space-x-2 justify" >
           <Button variant="outline" onClick={handleBack} disabled={submitting}>
             이전
           </Button>

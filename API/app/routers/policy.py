@@ -47,6 +47,12 @@ async def add_policy(
     result = await policyCRUD.create_policy(db, create_in) 
     return result
 
+@router.get("/my_policies", response_model=policySchema.PolicyList)
+async def get_policies_by_user(db: AsyncSession = Depends(get_db), current_user: userSchema.UserRead = Depends(deps.get_current_user)):
+    user_id = current_user.user_id
+    items = await policyCRUD.get_policies_by_user(db, user_id)
+    return { "policies": items }
+
 @router.get("/insurers", response_model=policySchema.InsurancePolicyInsurers)
 async def get_insurers(db: AsyncSession = Depends(get_db)):
     insurers = await policyCRUD.get_insurers(db)

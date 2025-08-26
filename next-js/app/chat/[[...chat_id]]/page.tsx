@@ -12,7 +12,8 @@ import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, 
 import { sendChatRequest } from "@/lib/sendChatRequst"
 import { v4 as uuidv4 } from 'uuid'
 // import NewChatModal from "./new-chat-modal"
-import InsuranceCompanyModal from "./insurance-company-modal"
+import InsuranceAddModal from "./insurance-add-modal"
+import InsuranceCheckModal from "./insurance-check-modal copy"
 import ProfileModal from "./profile-modal"
 import FAQModal from "./faq-modal" 
 import PolicyAnalysisModal from "./policy-analysis-modal"
@@ -102,6 +103,7 @@ export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   // const [showNewChatModal, setShowNewChatModal] = useState(false)
   const [showInsuranceModal, setShowInsuranceModal] = useState(false)
+  const [showInsuranceCheckModal, setShowInsuranceCheckModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [showFAQModal, setShowFAQModal] = useState(false)
   const [showPolicyAnalysisModal, setShowPolicyAnalysisModal] = useState(false)
@@ -518,15 +520,15 @@ export default function ChatPage() {
     router.push(`/chat/${chatId}`);
   };
 
-  const handleInsuranceCompanyComplete = (companies: string[] | null) => {
-    if (companies === null) {
-      setMyInsuranceCompleted(true)
-      setSelectedInsuranceCompanies([])
-    } else {       
-      setSelectedInsuranceCompanies(companies)
-      setMyInsuranceCompleted(true)
-    }
-  }
+  // const handleInsuranceCompanyComplete = (companies: string[] | null) => {
+  //   if (companies === null) {
+  //     setMyInsuranceCompleted(true)
+  //     setSelectedInsuranceCompanies([])
+  //   } else {       
+  //     setSelectedInsuranceCompanies(companies)
+  //     setMyInsuranceCompleted(true)
+  //   }
+  // }
 
   const handlePolicyAnalysis = (files: File[], textInput?: string) => {
     const fileNames = files.map(f => f.name).join(', ')
@@ -680,9 +682,13 @@ export default function ChatPage() {
         </div>
 
         <nav className="px-4 space-y-2">
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowInsuranceCheckModal(true)}> 
+            <User className="mr-3 h-4 w-4 text-gray-800" />
+            나의 보험 확인하기
+          </Button>
           <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowInsuranceModal(true)}> 
             <User className="mr-3 h-4 w-4 text-gray-800" />
-            나의 보험
+            나의 보험 추가하기
           </Button>
           <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowPolicyAnalysisModal(true)}> 
             <FileText className="mr-3 h-4 w-4 text-blue-600" />
@@ -895,30 +901,6 @@ export default function ChatPage() {
                     ))
                 )}
             </div>
-            // <div className="max-w-3xl mx-auto space-y-4">
-            //   {messages.map((message) => (
-            //     <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-            //       <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
-            //         <Avatar className="w-8 h-8">
-            //           {message.role === "user" ? (
-            //             <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
-            //           ) : (
-            //             <AvatarImage src="/placeholder.svg?height=32&width=32" />
-            //           )}
-            //         </Avatar>
-            //         <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
-            //           <div className="whitespace-pre-wrap">
-            //             {message.role === "assistant"
-            //               ? (message.content === "" && messageState && messageState !== "done"
-            //                   ? STATE_TEXT[messageState as NonDoneState]
-            //                   : (message.content || "..."))
-            //               : message.content}
-            //           </div>
-            //         </div>
-            //       </div>
-            //     </div>
-            //   ))}
-            // </div>
           )}
         </div>
 
@@ -966,7 +948,8 @@ export default function ChatPage() {
       {/* Modals */}
       <FileSubmitModal isOpen={showFileSubmitModal} onClose={() => setShowFileSubmitModal(false)} onSend={(files) => handleFileSubmit(files)}/>
       {/* <NewChatModal isOpen={showNewChatModal} onClose={() => setShowNewChatModal(false)} onStartChat={handleStartChatFromModal} /> */}
-      <InsuranceCompanyModal isOpen={showInsuranceModal} onClose={() => setShowInsuranceModal(false)} onDone={(p) => { setShowInsuranceModal(false); if (p) setSelectedPolicy(p); }} />
+      <InsuranceCheckModal isOpen={showInsuranceCheckModal} onClose={() => setShowInsuranceCheckModal(false)} />
+      <InsuranceAddModal isOpen={showInsuranceModal} onClose={() => setShowInsuranceModal(false)} onDone={(p) => { setShowInsuranceModal(false); if (p) setSelectedPolicy(p); }} />
       <ProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
       <FAQModal isOpen={showFAQModal} onClose={() => setShowFAQModal(false)} onSelectQuestion={handleFAQSelect} />
       <PolicyAnalysisModal isOpen={showPolicyAnalysisModal} onClose={() => setShowPolicyAnalysisModal(false)} onAnalyze={(files, text) => handlePolicyAnalysis(files, text)} />

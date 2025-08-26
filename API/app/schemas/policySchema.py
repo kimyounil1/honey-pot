@@ -28,3 +28,6 @@ class InsurancePolicyInsurers(BaseModel):
 class InsurancePolicyList(BaseModel):
     insurer: str
     policies: list[str]
+
+class PolicyList(BaseModel):
+    policies: list[InsurancePolicyRead]

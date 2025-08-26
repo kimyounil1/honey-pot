@@ -24,5 +24,8 @@ async def get_insurers(db: AsyncSession):
     return result.scalars().all()
 
 async def get_policies_by_insurer(db:AsyncSession, insurer: str):
-    result = await db.execute(select(policyModel.InsurancePolicy.policy_id).where(policyModel.InsurancePolicy.insurer == insurer))
+    result = await db.execute(select(policyModel.InsurancePolicy.policy_id).where(
+        policyModel.InsurancePolicy.insurer == insurer, 
+        policyModel.InsurancePolicy.user_id == 1
+    ))
     return result.scalars().all()

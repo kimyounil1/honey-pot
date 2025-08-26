@@ -11,6 +11,7 @@ async function getAccessToken() {
 }
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+
 export async function GET() { 
   try {
     const token = await getAccessToken();
@@ -19,7 +20,7 @@ export async function GET() {
         return token;
     }
 
-    const fastApiResponse = await fetch(`http://API:8000/policies/insurers`, {
+    const fastApiResponse = await fetch(`http://API:8000/policies/my_policies`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
