@@ -50,7 +50,7 @@ export default function PolicyAnalysisModal({ isOpen, onClose, onAnalyze }: Poli
         <div className="space-y-6">
           <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center flex flex-col items-center justify-center bg-gray-50">
             <UploadCloud className="h-12 w-12 text-gray-400 mb-4" />
-            <p className="text-gray-600 mb-2">여기에 보험 증권 사진이나 pdf 파일을 올려주세요</p>
+            <p className="text-gray-600 mb-2">여기에 보험약관 pdf 파일을 올려주세요</p>
             <Label htmlFor="file-upload" className="cursor-pointer">
               <Button asChild variant="outline">
                 <span>파일 첨부하기</span>

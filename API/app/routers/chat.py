@@ -99,17 +99,17 @@ async def read_message_state(chat_id: int, current_user: userSchema.UserRead = D
             await s.execute(text("SET LOCAL statement_timeout = 1000"))
             await s.execute(text("SET TRANSACTION READ ONLY"))
 
-            print("########### get_char 호출시작 ###########")
+            # print("########### get_char 호출시작 ###########")
             chat = await asyncio.wait_for(chatCRUD.get_chat(s, chat_id), timeout=TIMEOUT_SECONDS)
-            print("########### get_char 호출종료 ###########")
+            # print("########### get_char 호출종료 ###########")
             if not chat:
                 raise HTTPException(status_code=404, detail="no chat")
             if (chat.user_id != current_user.user_id and current_user.user_id != 1):
                 raise HTTPException(status_code=403, detail="You do not have permission to access this chat.")
 
-            print("########### get_last_message 호출시작 ###########")
+            # print("########### get_last_message 호출시작 ###########")
             last_message = await asyncio.wait_for(chatCRUD.get_last_message(s, chat_id), timeout=TIMEOUT_SECONDS)
-            print("########### get_last_message 호출종료 ###########")
+            # print("########### get_last_message 호출종료 ###########")
 
         return chatSchema.MessageStateResponse(state=last_message.state)
 
@@ -126,7 +126,6 @@ async def update_message_state(chat_id: int, db: AsyncSession = Depends(get_db))
     except Exception as e:
         pass
     return chatSchema.MessageStateResponse(state="complete")
-
 
 @router.post("/ask")
 async def ask(
