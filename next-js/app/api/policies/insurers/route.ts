@@ -1,3 +1,4 @@
+// /app/api/policies/insurers
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 

@@ -3,7 +3,6 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CheckCircle, Lightbulb, ArrowRight, DollarSign, ShieldCheck, RefreshCw, SearchCheck } from 'lucide-react'
 
 interface RecommendationModalProps {

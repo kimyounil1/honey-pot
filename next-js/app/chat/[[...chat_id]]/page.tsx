@@ -275,55 +275,6 @@ export default function ChatPage() {
   };
   };
 
-  // 🚩TODO: 약관분석 modal 관련
-// const onAnalyze = async (files: File[], textInput?: string) => {
-//     // 1) (선택) 파일을 먼저 업로드하여 attachment_ids를 얻는 백엔드라면 여기에 업로드 단계 추가
-//     // const attachRes = await fetch('/api/files', {...});
-//     // const { attachment_ids } = await attachRes.json();
-
-//     // 2) /api/chat/ask 로 FormData 전송
-//     const fd = new FormData();
-//     fd.append("text", textInput ?? "");
-//     // 백엔드 모델이 form 필드명을 어떻게 기대하는지에 맞추세요.
-//     // 파일을 직접 받는다면:
-//     files.forEach((f) => fd.append("file", f)); // 여러 개인 경우 백엔드에 맞춰 "files[]" 등으로
-//     // chat_id가 이미 있으면 넘겨주고 없으면 first_message=true
-//     if (chatId) {
-//       fd.append("chat_id", String(chatId));
-//       fd.append("first_message", "false");
-//     } else {
-//       fd.append("first_message", "true");
-//     }
-//     // attachment_ids 를 쓰는 백엔드라면:
-//     // if (attachment_ids?.length) fd.append("attachment_ids", JSON.stringify(attachment_ids));
-
-//     const res = await fetch(`/api/chat/ask?t=${Date.now()}`, {
-//       method: "POST",
-//       body: fd,
-//       // 캐싱 방지
-//       headers: { "Cache-Control": "no-cache" },
-//     });
-
-//     if (!res.ok) {
-//       const msg = await res.text();
-//       throw new Error(`Ask API Error: ${msg || res.status}`);
-//     }
-
-//     const data = await res.json();
-//     const nextChatId: number = data.chat_id ?? chatId!;
-//     if (!nextChatId) throw new Error("chat_id를 확인할 수 없습니다.");
-
-//     // 3) URL 정합성 맞추기 (새로 생성된 채팅이면 /chat/{id}로 이동)
-//     if (!chatId || String(chatId) !== String(nextChatId)) {
-//       setChatId(nextChatId);
-//       router.push(`/chat/${nextChatId}`);
-//     }
-
-//     // 4) 즉시 폴링 시작 (화면엔 기존 useEffect 폴링과 충돌 없음)
-//     startPolling(nextChatId);
-//   };
-
-
   const fetchChatHistory = async (id: number, opts: { allowEmptyReplace?: boolean } = {}) => {
     const { allowEmptyReplace = true } = opts;
     setIsLoading(true);
@@ -424,127 +375,11 @@ export default function ChatPage() {
       setIsLoading(false);
     }
   };
-  // const handleSubmit = async (e: React.FormEvent) => {
-  //   e.preventDefault();
-  //   if (!input.trim() || isLoading) return;
-
-  //   hideBanner()
-  //   const userMessage: Message = { id: uuidv4(), role: 'user', content: input, attachment: pendingUploadRef.current ?? undefined, };
-  //   const placeholderId = uuidv4();
-  //   const assistantPlaceholder: Message = { id: placeholderId, role: 'assistant', content: '', };
-  //   setMessages(prev => [...prev, userMessage]);
-  //   setLastMessage(assistantPlaceholder);
-  //   setInput("");
-  //   setIsLoading(true);
-  //   setMessageState("commencing");
-  //     // 이전 polling 중지
-  //   cleanupRef.current?.();
-
-  //   // 새로운 polling 시작
-  //   if(chatId !== undefined){
-  //       cleanupRef.current = startPolling(chatId);
-  //   }
-
-  //   try {
-  //     const response = await sendChatRequest([...messages, userMessage], chatId);
-
-  //     // 새 채팅이면 라우팅만 (상태는 route-param이 관리)
-  //     if (response?.chat_id && !chatId) {
-  //       router.push(`/chat/${response.chat_id}`);
-  //       fetchChatSessions?.();
-  //     }
-  //     if (response?.answer) {
-  //       const assistantMessage: Message = {
-  //         id: placeholderId,
-  //         role: "assistant",
-  //         content: response.answer,
-  //       };
-  //       setLastMessage(null);
-  //       setMessages(prev => [...prev, assistantMessage]);
-  //     }
-  //     pendingUploadRef.current = null;
-  //   } catch (err) {
-  //     console.error(err);
-  //     const errorMessage: Message = {
-  //       id: placeholderId,
-  //       role: "assistant",
-  //       content: "오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-  //     };
-  //     setLastMessage(null);
-  //     setMessages(prev => [...prev, errorMessage]);
-  //     setMessageState("failed");
-  //   } finally {
-  //     setIsLoading(false);
-  //   }
-  // };
-
+  
   const [showChatHistory, setShowChatHistory] = useState(true)
   const [myInsuranceCompleted, setMyInsuranceCompleted] = useState(false)
   const [selectedInsuranceCompanies, setSelectedInsuranceCompanies] = useState<string[]>([])
   const [showAllQuickQuestions, setShowAllQuickQuestions] = useState(false)
-
-  // const handleStartChatFromModal = async (type: string, title?: string, initialMessage?: string) => {
-  //   if (!initialMessage || isLoading) return;
-
-  //   const userMessage: Message = {
-  //     id: uuidv4(),
-  //     role: "user",
-  //     content: initialMessage,
-  //   };
-  //   const placeholderId = uuidv4();
-  //   const assistantPlaceholder: Message = {
-  //     id: placeholderId,
-  //     role: 'assistant',
-  //     content: '',
-  //   };
-
-  //   setMessages([userMessage]);
-  //   setLastMessage(assistantPlaceholder);
-  //   setInput('');
-  //   setIsLoading(true);
-
-  //   try {
-  //     const messagesForApi = [userMessage];
-  //     const response = await sendChatRequest(messagesForApi, chatId);
-
-  //     if (response && response.answer) {
-  //       const assistantMessage: Message = {
-  //         id: placeholderId,
-  //         role: 'assistant',
-  //         content: response.answer,
-  //       };
-  //       setLastMessage(null);
-  //       setMessages(prev => [...prev, assistantMessage]);
-
-  //       if (response.chat_id && !chatId) {
-  //         const newChatId = response.chat_id;
-  //         router.push(`/chat/${newChatId}`)
-  //       }
-  //       // fetchChatSessions();
-  //     } else if (response?.chat_id && chatId) {
-  //       // 비동기 응답: placeholder 유지, 히스토리 로딩 시 치환
-  //     } else {
-  //       const errorMessage: Message = {
-  //         id: placeholderId,
-  //         role: 'assistant',
-  //         content: response?.error || '오류가 발생했습니다.',
-  //       };
-  //       setLastMessage(null);
-  //       setMessages(prev => [...prev, errorMessage]);
-  //     }
-  //   } catch (error) {
-  //     console.error("Error in handleStartChatFromModal: ", error);
-  //     const errorMessage: Message = {
-  //       id: placeholderId,
-  //       role: 'assistant',
-  //       content: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
-  //     };
-  //     setLastMessage(null);
-  //     setMessages(prev => [...prev, errorMessage]);
-  //   } finally {
-  //     setIsLoading(false);
-  //   }
-  // }
 
   const fetchChatSessions = async () => {
     try {
@@ -586,28 +421,18 @@ export default function ChatPage() {
     router.push(`/chat/${chatId}`);
   };
 
-  // const handleInsuranceCompanyComplete = (companies: string[] | null) => {
-  //   if (companies === null) {
-  //     setMyInsuranceCompleted(true)
-  //     setSelectedInsuranceCompanies([])
-  //   } else {       
-  //     setSelectedInsuranceCompanies(companies)
-  //     setMyInsuranceCompleted(true)
-  //   }
-  // }
-
-  const handlePolicyAnalysis = (files: File[], textInput?: string) => {
-    const fileNames = files.map(f => f.name).join(', ')
-    const message = textInput ? `내 보험 증권 분석을 요청합니다. 내용: ${textInput}` : `내 보험 증권 분석을 요청합니다. 파일: ${fileNames}`
-    // handleStartChatFromModal("analysis", "보험 약관 분석 요청", message)
+  const handlePolicyAnalysis = (p: { policy_id: string }) => {
+    const message = `내 보험 분석을 요청합니다: ${p.policy_id}`
+    pendingUploadRef.current = {
+        product_id: p.policy_id,
+        disease_code: null,
+    }
+    submitMessage(message)
   }
 
-  const handleRefundAnalysis = (medicalCertificate: File | null, detailedBill: File | null, textInput?: string) => {
-    let message = textInput || ""
-    if (medicalCertificate && detailedBill) {
-      message += `\n진료확인서(${medicalCertificate?.name})와 진료비 세부 내역서(${detailedBill?.name})도 첨부합니다.`
-    }
-    // handleStartChatFromModal("refund", "환급금 분석 요청", message.trim())
+  const handleRefundAnalysis = (textInput?: string) => {
+    const message = textInput || ""
+    submitMessage(message)
   }
 
   const handleRecommendationComplete = (recommendationType: string) => {
@@ -641,7 +466,7 @@ export default function ChatPage() {
         pendingUploadRef.current = {
         product_id: data.product_id ?? null,
         disease_code: data.disease_code ?? null,
-      }
+      } 
     }
     } catch (e) {
       window.alert(e)
@@ -984,7 +809,7 @@ export default function ChatPage() {
               <Input
                 value={input}
                 onChange={handleInputChange}
-                placeholder="보험에 대해 `궁금한 것을 물어보세요..."
+                placeholder="보험에 대해 궁금한 것을 물어보세요..."
                 className="flex-1"
                 disabled={isLoading}
               />
@@ -1025,8 +850,8 @@ export default function ChatPage() {
       <InsuranceAddModal isOpen={showInsuranceModal} onClose={() => setShowInsuranceModal(false)} onDone={(p) => { setShowInsuranceModal(false); if (p) setSelectedPolicy(p); }} />
       <ProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
       <FAQModal isOpen={showFAQModal} onClose={() => setShowFAQModal(false)} onSelectQuestion={handleFAQSelect} />
-      <PolicyAnalysisModal isOpen={showPolicyAnalysisModal} onClose={() => setShowPolicyAnalysisModal(false)} onAnalyze={(files, text) => handlePolicyAnalysis(files, text)} />
-      <RefundFinderModal isOpen={showRefundFinderModal} onClose={() => setShowRefundFinderModal(false)} onAnalyze={(mc, db, text) => handleRefundAnalysis(mc, db, text)} />
+      <PolicyAnalysisModal isOpen={showPolicyAnalysisModal} onClose={() => setShowPolicyAnalysisModal(false)} onDone={(p) => handlePolicyAnalysis(p)} />
+      <RefundFinderModal isOpen={showRefundFinderModal} onClose={() => setShowRefundFinderModal(false)} onAnalyze={(text) => handleRefundAnalysis(text)} />
       <RecommendationModal isOpen={showRecommendationModal} onClose={() => setShowRecommendationModal(false)} onComplete={handleRecommendationComplete} />
 
       {/* 🔎 Tiny debug overlay (삭제해도 됩니다)
