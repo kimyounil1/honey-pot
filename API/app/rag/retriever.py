@@ -424,6 +424,7 @@ async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: s
                     else:
                         price = 0.5
 
+                    # TODO : 추후에 보험 신용도/인지도 점수  추가해서 가중치 적용 현재 0.5 고정
                     trust = 0.5  # 고정값
 
                     # 보완성(Complementarity)
@@ -876,9 +877,7 @@ async def extract_policy_meta(chunks: List[List[Dict[str, Any]]]) -> Dict[str, A
     flat = [c for b in chunks for c in b]
     prompt = _policy_meta_prompt(flat)
     txt = await _wx_async(prompt)
-    print(txt)
     arr = extract_json_array(txt)
-    print(arr)
     for it in arr:
         if isinstance(it, dict):
             for k in ("waiting_period_days", "age_min", "age_max"):
