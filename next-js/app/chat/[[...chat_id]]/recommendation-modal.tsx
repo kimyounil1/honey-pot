@@ -10,51 +10,44 @@ interface RecommendationModalProps {
   isOpen: boolean
   onClose: () => void
   onComplete: (recommendationType: string) => void // 선택된 추천 유형 전달
-  selectedCompanies: string[]
 }
 
-export default function RecommendationModal({ isOpen, onClose, onComplete, selectedCompanies }: RecommendationModalProps) {
-  const [step, setStep] = useState(0) // 0: 유형 선택, 1: 요약, 2: 추천
+export default function RecommendationModal({ isOpen, onClose, onComplete }: RecommendationModalProps) {
   const [selectedRecommendationType, setSelectedRecommendationType] = useState<string | null>(null)
-
-  const handleNextStep = () => {
-    setStep(prev => prev + 1)
-  }
 
   const handleSelectType = (type: string) => {
     setSelectedRecommendationType(type)
-    setStep(1) // 요약 단계로 이동
+    onComplete(type)
   }
 
   const handleClose = () => {
-    setStep(0) // 모달 닫을 때 단계 초기화
     setSelectedRecommendationType(null)
     onClose()
   }
 
-  const dummyAnalysisSummary = `
-    <p><strong>${selectedCompanies.length > 0 ? selectedCompanies.join(", ") : "등록된 보험사 없음"}</strong> 보험 분석 결과:</p>
-    <ul class="list-disc list-inside space-y-1 mt-2">
-      <li>현재 보장 범위: ${selectedCompanies.includes("삼성생명") ? "생명보험, 건강보험" : "기본 실손보험"}</li>
-      <li>주요 특약: ${selectedCompanies.includes("현대해상") ? "운전자 특약, 상해 특약" : "없음"}</li>
-      <li>월 납입 보험료: 약 ${selectedCompanies.length * 50000}원</li>
-      <li>강점: ${selectedCompanies.length > 1 ? "다양한 보험사 분산 가입으로 위험 분산" : "단일 보험사 집중으로 관리 용이"}</li>
-      <li>개선 필요: ${selectedCompanies.includes("KB손해보험") ? "암 진단비 부족, 노후 실손 전환 고려" : "치아 보험, 해외 여행자 보험 부재"}</li>
-    </ul>
-  `
+  // const dummyAnalysisSummary = `
+  //   <p><strong>${selectedCompanies.length > 0 ? selectedCompanies.join(", ") : "등록된 보험사 없음"}</strong> 보험 분석 결과:</p>
+  //   <ul class="list-disc list-inside space-y-1 mt-2">
+  //     <li>현재 보장 범위: ${selectedCompanies.includes("삼성생명") ? "생명보험, 건강보험" : "기본 실손보험"}</li>
+  //     <li>주요 특약: ${selectedCompanies.includes("현대해상") ? "운전자 특약, 상해 특약" : "없음"}</li>
+  //     <li>월 납입 보험료: 약 ${selectedCompanies.length * 50000}원</li>
+  //     <li>강점: ${selectedCompanies.length > 1 ? "다양한 보험사 분산 가입으로 위험 분산" : "단일 보험사 집중으로 관리 용이"}</li>
+  //     <li>개선 필요: ${selectedCompanies.includes("KB손해보험") ? "암 진단비 부족, 노후 실손 전환 고려" : "치아 보험, 해외 여행자 보험 부재"}</li>
+  //   </ul>
+  // `
 
-  const dummyRecommendation = `
-    <p><strong>선택하신 "${selectedRecommendationType}"에 대한 맞춤 추천:</strong></p>
-    <ul class="list-disc list-inside space-y-1 mt-2">
-      <li><strong>보험료 절감 (예시):</strong> 현재 불필요한 특약 제거 및 갱신형 상품 비갱신형 전환으로 월 2만원 절감 가능.</li>
-      <li><strong>보장 강화 (예시):</strong> 암 진단비 5천만원 추가 (월 3만원), 뇌혈관/심혈관 질환 특약 추가 (월 1.5만원)로 주요 질병 보장 강화.</li>
-      <li><strong>회사 변경 (예시):</strong> 기존 A보험사에서 B보험사로 전환 시, 동일 보장 대비 월 1만원 저렴한 상품 추천.</li>
-      <li><strong>맞춤 보장 (예시):</strong> 고객님의 라이프스타일에 맞춰 활동량 기반 할인 특약 및 건강 증진형 보험 상품 추천.</li>
-    </ul>
-    <p class="mt-4 text-sm text-gray-600">
-      *위 내용은 가상의 분석 결과이며, 실제 상담을 통해 정확한 정보를 확인하세요.
-    </p>
-  `
+  // const dummyRecommendation = `
+  //   <p><strong>선택하신 "${selectedRecommendationType}"에 대한 맞춤 추천:</strong></p>
+  //   <ul class="list-disc list-inside space-y-1 mt-2">
+  //     <li><strong>보험료 절감 (예시):</strong> 현재 불필요한 특약 제거 및 갱신형 상품 비갱신형 전환으로 월 2만원 절감 가능.</li>
+  //     <li><strong>보장 강화 (예시):</strong> 암 진단비 5천만원 추가 (월 3만원), 뇌혈관/심혈관 질환 특약 추가 (월 1.5만원)로 주요 질병 보장 강화.</li>
+  //     <li><strong>회사 변경 (예시):</strong> 기존 A보험사에서 B보험사로 전환 시, 동일 보장 대비 월 1만원 저렴한 상품 추천.</li>
+  //     <li><strong>맞춤 보장 (예시):</strong> 고객님의 라이프스타일에 맞춰 활동량 기반 할인 특약 및 건강 증진형 보험 상품 추천.</li>
+  //   </ul>
+  //   <p class="mt-4 text-sm text-gray-600">
+  //     *위 내용은 가상의 분석 결과이며, 실제 상담을 통해 정확한 정보를 확인하세요.
+  //   </p>
+  // `
 
   const recommendationOptions = [
     {
@@ -89,8 +82,6 @@ export default function RecommendationModal({ isOpen, onClose, onComplete, selec
         <DialogHeader>
           <DialogTitle className="text-xl">보험 추천</DialogTitle>
         </DialogHeader>
-
-        {step === 0 && (
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-center">어떤 종류의 보험 추천을 원하시나요?</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -114,9 +105,8 @@ export default function RecommendationModal({ isOpen, onClose, onComplete, selec
               ))}
             </div>
           </div>
-        )}
 
-        {step === 1 && (
+        {/* {step === 1 && (
           <div className="space-y-6">
             <Card className="bg-blue-50 border-blue-200">
               <CardHeader>
@@ -139,9 +129,9 @@ export default function RecommendationModal({ isOpen, onClose, onComplete, selec
               </Button>
             </div>
           </div>
-        )}
+        )} */}
 
-        {step === 2 && (
+        {/* {step === 1 && (
           <div className="space-y-6">
             <Card className="bg-green-50 border-green-200">
               <CardHeader>
@@ -153,9 +143,9 @@ export default function RecommendationModal({ isOpen, onClose, onComplete, selec
               <CardContent>
                 <div className="text-sm text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: dummyRecommendation }} />
               </CardContent>
-            </Card>
+            </Card> */}
 
-            <div className="flex justify-end">
+            {/* <div className="flex justify-end">
               <Button
                 onClick={() => {
                   if (selectedRecommendationType) {
@@ -169,7 +159,7 @@ export default function RecommendationModal({ isOpen, onClose, onComplete, selec
               </Button>
             </div>
           </div>
-        )}
+        )} */}
       </DialogContent>
     </Dialog>
   )

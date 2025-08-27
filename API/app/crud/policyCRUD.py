@@ -7,8 +7,16 @@ async def create_policy(db: AsyncSession, policy_in: policySchema.InsurancePolic
     await db.refresh(policy)
     return policy
 
-async def get_policy(db: AsyncSession, policy_id: int):
+async def get_policy(db: AsyncSession, policy_id: str):
     result = await db.execute(select(policyModel.InsurancePolicy).where(policyModel.InsurancePolicy.policy_id == policy_id))
+    return result.scalars().first()
+
+async def get_policies_by_user(db: AsyncSession, user_id: int):
+    result = await db.execute(select(policyModel.InsurancePolicy).where(policyModel.InsurancePolicy.user_id == user_id))
+    return result.scalars().all()
+
+async def get_policy_with_user(db: AsyncSession, user_id: int, policy_id: str):
+    result = await db.execute(select(policyModel.InsurancePolicy).where(policyModel.InsurancePolicy.user_id == user_id, policyModel.InsurancePolicy.policy_id == policy_id))
     return result.scalars().first()
 
 async def get_insurers(db: AsyncSession):
@@ -16,5 +24,8 @@ async def get_insurers(db: AsyncSession):
     return result.scalars().all()
 
 async def get_policies_by_insurer(db:AsyncSession, insurer: str):
-    result = await db.execute(select(policyModel.InsurancePolicy.policy_id).where(policyModel.InsurancePolicy.insurer == insurer))
+    result = await db.execute(select(policyModel.InsurancePolicy.policy_id).where(
+        policyModel.InsurancePolicy.insurer == insurer, 
+        policyModel.InsurancePolicy.user_id == 1
+    ))
     return result.scalars().all()

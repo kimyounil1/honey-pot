@@ -1,6 +1,5 @@
-// /next-js/app/api/chat/chats/route.ts
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 async function getAccessToken() {
   const cookieStore = await cookies();
@@ -20,7 +19,7 @@ export async function GET() {
         return token;
     }
 
-    const fastApiResponse = await fetch(`http://API:8000/chat/chats`, {
+    const fastApiResponse = await fetch(`http://API:8000/policies/insurers`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',

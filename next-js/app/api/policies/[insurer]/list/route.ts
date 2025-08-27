@@ -1,30 +1,16 @@
 // /next-js/app/api/chat/chats/route.ts
-import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 
-async function getAccessToken() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('access_token')?.value;
-  if (!token) {
-    return new NextResponse('Unauthorized', { status: 401 });
-  }
-  return token;
-}
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-export async function GET() { 
-  try {
-    const token = await getAccessToken();
-    
-    if (token instanceof NextResponse) {
-        return token;
-    }
 
-    const fastApiResponse = await fetch(`http://API:8000/chat/chats`, {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ insurer: string }> }) { 
+  try {
+    const { insurer } = await ctx.params
+    const fastApiResponse = await fetch(`http://API:8000/policies/${insurer}/list`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'Authorization': `Bearer ${token}`,
       },
       cache: "no-store"
     });

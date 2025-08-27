@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
 
     // 4) 타임아웃/취소 제어
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 180_000); // 180초
+    const timeout = setTimeout(() => controller.abort(), 300_000); // 300초
 
     // 5) FastAPI에 프록시 요청
     const res = await fetch(`http://API:8000/ocr/`, {

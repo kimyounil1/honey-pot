@@ -11,8 +11,9 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, LogOut, ChevronDown, ChevronRight, ChevronUp, Droplet, Files, Webhook, Upload } from 'lucide-react'
 import { sendChatRequest } from "@/lib/sendChatRequst"
 import { v4 as uuidv4 } from 'uuid'
-import NewChatModal from "./new-chat-modal"
-import InsuranceCompanyModal from "./insurance-company-modal"
+// import NewChatModal from "./new-chat-modal"
+import InsuranceAddModal from "./insurance-add-modal"
+import InsuranceCheckModal from "./insurance-check-modal copy"
 import ProfileModal from "./profile-modal"
 import FAQModal from "./faq-modal" 
 import PolicyAnalysisModal from "./policy-analysis-modal"
@@ -100,14 +101,16 @@ function TopBanner({
 }
 export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [showNewChatModal, setShowNewChatModal] = useState(false)
+  // const [showNewChatModal, setShowNewChatModal] = useState(false)
   const [showInsuranceModal, setShowInsuranceModal] = useState(false)
+  const [showInsuranceCheckModal, setShowInsuranceCheckModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [showFAQModal, setShowFAQModal] = useState(false)
   const [showPolicyAnalysisModal, setShowPolicyAnalysisModal] = useState(false)
   const [showRefundFinderModal, setShowRefundFinderModal] = useState(false)
   const [showRecommendationModal, setShowRecommendationModal] = useState(false)
   const [showFileSubmitModal, setShowFileSubmitModal] = useState(false)
+  const [selectedPolicy, setSelectedPolicy] = useState<{ policy_id: string } | null>(null)
 
   // 배너 표시
   const [bannerOpen, setBannerOpen] = useState(false);
@@ -355,35 +358,47 @@ export default function ChatPage() {
     setInput(e.target.value)
   }
   const cleanupRef = useRef<(() => void) | null>(null);
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
+  const messagesRef = useRef<Message[]>(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-    hideBanner()
-    const userMessage: Message = { id: uuidv4(), role: 'user', content: input, attachment: pendingUploadRef.current ?? undefined, };
+  const submitMessage = async (text: string, opts?: { clearInput?: boolean }) => {
+    const { clearInput = true } = opts ?? {};
+    const trimmed = text.trim();
+    if (!trimmed || isLoading) return;
+
+    hideBanner();
+
+    const userMessage: Message = {
+      id: uuidv4(),
+      role: "user",
+      content: trimmed,
+      attachment: pendingUploadRef.current ?? undefined,
+    };
     const placeholderId = uuidv4();
-    const assistantPlaceholder: Message = { id: placeholderId, role: 'assistant', content: '', };
+    const assistantPlaceholder: Message = { id: placeholderId, role: "assistant", content: "" };
+
     setMessages(prev => [...prev, userMessage]);
     setLastMessage(assistantPlaceholder);
-    setInput("");
+    if (clearInput) setInput("");
     setIsLoading(true);
     setMessageState("commencing");
-      // 이전 polling 중지
-    cleanupRef.current?.();
 
-    // 새로운 polling 시작
-    if(chatId !== undefined){
-        cleanupRef.current = startPolling(chatId);
+    // 이전 polling 중지 후 새 polling 시작
+    cleanupRef.current?.();
+    if (chatId !== undefined) {
+      cleanupRef.current = startPolling(chatId);
     }
 
-    try {
-      const response = await sendChatRequest([...messages, userMessage], chatId);
+    const outgoing = [...messagesRef.current, userMessage];
 
-      // 새 채팅이면 라우팅만 (상태는 route-param이 관리)
+    try {
+      const response = await sendChatRequest(outgoing as any[], chatId);
+
       if (response?.chat_id && !chatId) {
         router.push(`/chat/${response.chat_id}`);
         fetchChatSessions?.();
       }
+
       if (response?.answer) {
         const assistantMessage: Message = {
           id: placeholderId,
@@ -393,6 +408,7 @@ export default function ChatPage() {
         setLastMessage(null);
         setMessages(prev => [...prev, assistantMessage]);
       }
+
       pendingUploadRef.current = null;
     } catch (err) {
       console.error(err);
@@ -408,78 +424,127 @@ export default function ChatPage() {
       setIsLoading(false);
     }
   };
+  // const handleSubmit = async (e: React.FormEvent) => {
+  //   e.preventDefault();
+  //   if (!input.trim() || isLoading) return;
+
+  //   hideBanner()
+  //   const userMessage: Message = { id: uuidv4(), role: 'user', content: input, attachment: pendingUploadRef.current ?? undefined, };
+  //   const placeholderId = uuidv4();
+  //   const assistantPlaceholder: Message = { id: placeholderId, role: 'assistant', content: '', };
+  //   setMessages(prev => [...prev, userMessage]);
+  //   setLastMessage(assistantPlaceholder);
+  //   setInput("");
+  //   setIsLoading(true);
+  //   setMessageState("commencing");
+  //     // 이전 polling 중지
+  //   cleanupRef.current?.();
+
+  //   // 새로운 polling 시작
+  //   if(chatId !== undefined){
+  //       cleanupRef.current = startPolling(chatId);
+  //   }
+
+  //   try {
+  //     const response = await sendChatRequest([...messages, userMessage], chatId);
+
+  //     // 새 채팅이면 라우팅만 (상태는 route-param이 관리)
+  //     if (response?.chat_id && !chatId) {
+  //       router.push(`/chat/${response.chat_id}`);
+  //       fetchChatSessions?.();
+  //     }
+  //     if (response?.answer) {
+  //       const assistantMessage: Message = {
+  //         id: placeholderId,
+  //         role: "assistant",
+  //         content: response.answer,
+  //       };
+  //       setLastMessage(null);
+  //       setMessages(prev => [...prev, assistantMessage]);
+  //     }
+  //     pendingUploadRef.current = null;
+  //   } catch (err) {
+  //     console.error(err);
+  //     const errorMessage: Message = {
+  //       id: placeholderId,
+  //       role: "assistant",
+  //       content: "오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+  //     };
+  //     setLastMessage(null);
+  //     setMessages(prev => [...prev, errorMessage]);
+  //     setMessageState("failed");
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
 
   const [showChatHistory, setShowChatHistory] = useState(true)
   const [myInsuranceCompleted, setMyInsuranceCompleted] = useState(false)
   const [selectedInsuranceCompanies, setSelectedInsuranceCompanies] = useState<string[]>([])
   const [showAllQuickQuestions, setShowAllQuickQuestions] = useState(false)
 
-  const handleNewChat = () => {
-    setShowNewChatModal(true)
-  }
+  // const handleStartChatFromModal = async (type: string, title?: string, initialMessage?: string) => {
+  //   if (!initialMessage || isLoading) return;
 
-  const handleStartChatFromModal = async (type: string, title?: string, initialMessage?: string) => {
-    if (!initialMessage || isLoading) return;
+  //   const userMessage: Message = {
+  //     id: uuidv4(),
+  //     role: "user",
+  //     content: initialMessage,
+  //   };
+  //   const placeholderId = uuidv4();
+  //   const assistantPlaceholder: Message = {
+  //     id: placeholderId,
+  //     role: 'assistant',
+  //     content: '',
+  //   };
 
-    const userMessage: Message = {
-      id: uuidv4(),
-      role: "user",
-      content: initialMessage,
-    };
-    const placeholderId = uuidv4();
-    const assistantPlaceholder: Message = {
-      id: placeholderId,
-      role: 'assistant',
-      content: '',
-    };
+  //   setMessages([userMessage]);
+  //   setLastMessage(assistantPlaceholder);
+  //   setInput('');
+  //   setIsLoading(true);
 
-    setMessages([userMessage]);
-    setLastMessage(assistantPlaceholder);
-    setInput('');
-    setIsLoading(true);
+  //   try {
+  //     const messagesForApi = [userMessage];
+  //     const response = await sendChatRequest(messagesForApi, chatId);
 
-    try {
-      const messagesForApi = [userMessage];
-      const response = await sendChatRequest(messagesForApi, chatId);
+  //     if (response && response.answer) {
+  //       const assistantMessage: Message = {
+  //         id: placeholderId,
+  //         role: 'assistant',
+  //         content: response.answer,
+  //       };
+  //       setLastMessage(null);
+  //       setMessages(prev => [...prev, assistantMessage]);
 
-      if (response && response.answer) {
-        const assistantMessage: Message = {
-          id: placeholderId,
-          role: 'assistant',
-          content: response.answer,
-        };
-        setLastMessage(null);
-        setMessages(prev => [...prev, assistantMessage]);
-
-        if (response.chat_id && !chatId) {
-          const newChatId = response.chat_id;
-          router.push(`/chat/${newChatId}`)
-        }
-        // fetchChatSessions();
-      } else if (response?.chat_id && chatId) {
-        // 비동기 응답: placeholder 유지, 히스토리 로딩 시 치환
-      } else {
-        const errorMessage: Message = {
-          id: placeholderId,
-          role: 'assistant',
-          content: response?.error || '오류가 발생했습니다.',
-        };
-        setLastMessage(null);
-        setMessages(prev => [...prev, errorMessage]);
-      }
-    } catch (error) {
-      console.error("Error in handleStartChatFromModal: ", error);
-      const errorMessage: Message = {
-        id: placeholderId,
-        role: 'assistant',
-        content: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
-      };
-      setLastMessage(null);
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  }
+  //       if (response.chat_id && !chatId) {
+  //         const newChatId = response.chat_id;
+  //         router.push(`/chat/${newChatId}`)
+  //       }
+  //       // fetchChatSessions();
+  //     } else if (response?.chat_id && chatId) {
+  //       // 비동기 응답: placeholder 유지, 히스토리 로딩 시 치환
+  //     } else {
+  //       const errorMessage: Message = {
+  //         id: placeholderId,
+  //         role: 'assistant',
+  //         content: response?.error || '오류가 발생했습니다.',
+  //       };
+  //       setLastMessage(null);
+  //       setMessages(prev => [...prev, errorMessage]);
+  //     }
+  //   } catch (error) {
+  //     console.error("Error in handleStartChatFromModal: ", error);
+  //     const errorMessage: Message = {
+  //       id: placeholderId,
+  //       role: 'assistant',
+  //       content: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+  //     };
+  //     setLastMessage(null);
+  //     setMessages(prev => [...prev, errorMessage]);
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // }
 
   const fetchChatSessions = async () => {
     try {
@@ -521,20 +586,20 @@ export default function ChatPage() {
     router.push(`/chat/${chatId}`);
   };
 
-  const handleInsuranceCompanyComplete = (companies: string[] | null) => {
-    if (companies === null) {
-      setMyInsuranceCompleted(true)
-      setSelectedInsuranceCompanies([])
-    } else {       
-      setSelectedInsuranceCompanies(companies)
-      setMyInsuranceCompleted(true)
-    }
-  }
+  // const handleInsuranceCompanyComplete = (companies: string[] | null) => {
+  //   if (companies === null) {
+  //     setMyInsuranceCompleted(true)
+  //     setSelectedInsuranceCompanies([])
+  //   } else {       
+  //     setSelectedInsuranceCompanies(companies)
+  //     setMyInsuranceCompleted(true)
+  //   }
+  // }
 
   const handlePolicyAnalysis = (files: File[], textInput?: string) => {
     const fileNames = files.map(f => f.name).join(', ')
     const message = textInput ? `내 보험 증권 분석을 요청합니다. 내용: ${textInput}` : `내 보험 증권 분석을 요청합니다. 파일: ${fileNames}`
-    handleStartChatFromModal("analysis", "보험 약관 분석 요청", message)
+    // handleStartChatFromModal("analysis", "보험 약관 분석 요청", message)
   }
 
   const handleRefundAnalysis = (medicalCertificate: File | null, detailedBill: File | null, textInput?: string) => {
@@ -542,11 +607,11 @@ export default function ChatPage() {
     if (medicalCertificate && detailedBill) {
       message += `\n진료확인서(${medicalCertificate?.name})와 진료비 세부 내역서(${detailedBill?.name})도 첨부합니다.`
     }
-    handleStartChatFromModal("refund", "환급금 분석 요청", message.trim())
+    // handleStartChatFromModal("refund", "환급금 분석 요청", message.trim())
   }
 
   const handleRecommendationComplete = (recommendationType: string) => {
-    handleStartChatFromModal("general", `보험 추천 (${recommendationType})`, `"${recommendationType}"에 대한 보험 추천을 완료했습니다. 결과에 대해 더 궁금한 점이 있습니다.`)
+    handleFAQSelect(`보험 추천부탁: ${recommendationType}`)
   }
 
   const handleFileSubmit = async (file: File) => {
@@ -638,9 +703,16 @@ export default function ChatPage() {
     }
   }
 
+  // 폼 제출
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await submitMessage(input, { clearInput: true });
+  };
+
+  // FAQ 클릭
   const handleFAQSelect = (question: string) => {
-    handleStartChatFromModal("general", question.length > 30 ? question.substring(0, 30) + "..." : question, question)
-  }
+    submitMessage(question, { clearInput: false }); // 입력칸 유지
+  };
 
   const resetToHome = () => {
     router.push('/chat');
@@ -675,7 +747,7 @@ export default function ChatPage() {
           <div className="text-center">
             <Button
               className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 justify-center"
-              onClick={handleNewChat}
+              onClick={resetToHome}
             >
               <Plus className="mr-2 h-4 w-4" />새 보험 채팅
             </Button>
@@ -683,9 +755,13 @@ export default function ChatPage() {
         </div>
 
         <nav className="px-4 space-y-2">
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowInsuranceCheckModal(true)}> 
+            <User className="mr-3 h-4 w-4 text-gray-800" />
+            나의 보험 확인하기
+          </Button>
           <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowInsuranceModal(true)}> 
             <User className="mr-3 h-4 w-4 text-gray-800" />
-            나의 보험
+            나의 보험 추가하기
           </Button>
           <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowPolicyAnalysisModal(true)}> 
             <FileText className="mr-3 h-4 w-4 text-blue-600" />
@@ -898,30 +974,6 @@ export default function ChatPage() {
                     ))
                 )}
             </div>
-            // <div className="max-w-3xl mx-auto space-y-4">
-            //   {messages.map((message) => (
-            //     <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-            //       <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
-            //         <Avatar className="w-8 h-8">
-            //           {message.role === "user" ? (
-            //             <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
-            //           ) : (
-            //             <AvatarImage src="/placeholder.svg?height=32&width=32" />
-            //           )}
-            //         </Avatar>
-            //         <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
-            //           <div className="whitespace-pre-wrap">
-            //             {message.role === "assistant"
-            //               ? (message.content === "" && messageState && messageState !== "done"
-            //                   ? STATE_TEXT[messageState as NonDoneState]
-            //                   : (message.content || "..."))
-            //               : message.content}
-            //           </div>
-            //         </div>
-            //       </div>
-            //     </div>
-            //   ))}
-            // </div>
           )}
         </div>
 
@@ -968,13 +1020,14 @@ export default function ChatPage() {
 
       {/* Modals */}
       <FileSubmitModal isOpen={showFileSubmitModal} onClose={() => setShowFileSubmitModal(false)} onSend={(files) => handleFileSubmit(files)}/>
-      <NewChatModal isOpen={showNewChatModal} onClose={() => setShowNewChatModal(false)} onStartChat={handleStartChatFromModal} />
-      <InsuranceCompanyModal isOpen={showInsuranceModal} onClose={() => setShowInsuranceModal(false)} onComplete={(c) => { setShowInsuranceModal(false); if (c) setSelectedInsuranceCompanies(c); }} initialSelectedCompanies={selectedInsuranceCompanies} onStartChat={handleStartChatFromModal} />
+      {/* <NewChatModal isOpen={showNewChatModal} onClose={() => setShowNewChatModal(false)} onStartChat={handleStartChatFromModal} /> */}
+      <InsuranceCheckModal isOpen={showInsuranceCheckModal} onClose={() => setShowInsuranceCheckModal(false)} />
+      <InsuranceAddModal isOpen={showInsuranceModal} onClose={() => setShowInsuranceModal(false)} onDone={(p) => { setShowInsuranceModal(false); if (p) setSelectedPolicy(p); }} />
       <ProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
       <FAQModal isOpen={showFAQModal} onClose={() => setShowFAQModal(false)} onSelectQuestion={handleFAQSelect} />
       <PolicyAnalysisModal isOpen={showPolicyAnalysisModal} onClose={() => setShowPolicyAnalysisModal(false)} onAnalyze={(files, text) => handlePolicyAnalysis(files, text)} />
       <RefundFinderModal isOpen={showRefundFinderModal} onClose={() => setShowRefundFinderModal(false)} onAnalyze={(mc, db, text) => handleRefundAnalysis(mc, db, text)} />
-      <RecommendationModal isOpen={showRecommendationModal} onClose={() => setShowRecommendationModal(false)} onComplete={handleRecommendationComplete} selectedCompanies={selectedInsuranceCompanies} />
+      <RecommendationModal isOpen={showRecommendationModal} onClose={() => setShowRecommendationModal(false)} onComplete={handleRecommendationComplete} />
 
       {/* 🔎 Tiny debug overlay (삭제해도 됩니다)
       <div className="fixed bottom-2 right-2 text-[11px] bg-black/70 text-white px-2 py-1 rounded shadow z-50 select-none">
