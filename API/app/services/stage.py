@@ -13,14 +13,15 @@ from app.crud import chatCRUD, nonBenefitCRUD
 logger = logging.getLogger(__name__)
 
 
-async def _classify(user_text: str, attachment_ids: Optional[List[str]]) -> Tuple[Mode, Dict[str, Any], bool]:
+async def _classify(user_text: str, prev_chats: Optional[List[str]]) -> Tuple[Mode, Dict[str, Any], bool]:
     # decision = classify_with_llm(user_text, attachment_ids or [])
     """Run the classification LLM in a thread so it doesn't block the event loop."""
-    decision = await asyncio.to_thread(classify_with_llm, user_text, attachment_ids or [])
+    decision = await asyncio.to_thread(classify_with_llm, user_text, prev_chats or [])
     mode: Mode = decision.flow
     entities: Dict[str, Any] = decision.entities or {}
     use_retrieval: bool = bool(getattr(decision, "use_retrieval", False))
-    return mode, entities, use_retrieval
+    text = decision.text
+    return mode, entities, use_retrieval, text
 
 
 async def prepare_llm_request(
@@ -28,12 +29,12 @@ async def prepare_llm_request(
     db: AsyncSession,
     user_id: int | str,
     text: str,
-    attachment_ids: Optional[List[str]] = None,
+    prev_chats: Optional[List[str]] = None,
     chat_id: int,
     disease_code: str | None = None,
     product_id: str | None = None,
 ) -> Dict[str, Any]:
-    att_ids = list(attachment_ids or [])
+    pre_chat = list(prev_chats or [])
 
     # 1) 분류 (동기 classify_with_llm에 맞춰 래퍼 사용)
     # 메세지 state 갱신 (classifying)
@@ -42,13 +43,13 @@ async def prepare_llm_request(
     except Exception as e:
         await chatCRUD.update_message_state(db, chat_id, "failed")
         raise
-    mode, entities, use_retrieval = await _classify(text, att_ids)
+    mode, entities, use_retrieval, text = await _classify(text, pre_chat)
     logger.info(
         "[STAGE] classify -> mode=%s | text='%s'",
         getattr(mode, "name", str(mode)),
         text[:80],
     )
-    code_for_check = (disease_code or entities.get("disease_code") or "").strip().upper()
+    code_for_check = (disease_code or entities.get("icd10_candidate") or "").strip().upper()
 
     # 2) FALLBACK은 정적 응답
     if mode == Mode.FALLBACK:
@@ -57,7 +58,7 @@ async def prepare_llm_request(
         return {
             "mode": mode,
             "messages": [],
-            "attachments_used": att_ids,
+            "attachments_used": pre_chat,
             "static_answer": static,
         }
 
@@ -81,7 +82,7 @@ async def prepare_llm_request(
             mode=mode,
             user_id=str(user_id),
             query=text,
-            attachment_ids=att_ids,
+            # prev_chats=pre_chat,
             product_id=product_id,
             limit=20,
             db_context=db_block,
@@ -126,6 +127,6 @@ async def prepare_llm_request(
     return {
         "mode": mode,
         "messages": messages,
-        "attachments_used": att_ids,
+        "prev_chats": pre_chat,
         "static_answer": "",
     }

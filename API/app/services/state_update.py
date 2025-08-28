@@ -13,7 +13,7 @@ async def process_assistant_message(
     chat_id: int,
     user_id: int,
     text: str,
-    attachment_ids: Optional[List[str]],
+    prev_chats: Optional[List[str]],
     disease_code: Optional[str] = None,
     product_id: Optional[str] = None,
 ):
@@ -27,7 +27,7 @@ async def process_assistant_message(
                 db=db,
                 user_id=user_id,
                 text=text,
-                attachment_ids=attachment_ids or [],
+                prev_chats=prev_chats or [],
                 chat_id=chat_id,
                 product_id=product_id,
             )
@@ -39,7 +39,6 @@ async def process_assistant_message(
 
             mode = prep["mode"]
             mode_str = getattr(mode, "name", str(mode))
-            attachments_used = prep.get("attachments_used", [])
             static_answer = prep.get("static_answer") or ""
 
             # type 업데이트

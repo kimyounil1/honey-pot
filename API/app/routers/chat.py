@@ -26,39 +26,36 @@ class AskBody(BaseModel):
     # user_id: int
     role: str = "user"
     text: str
-    attachment_ids: Optional[List[str]] = None  # 업로드된 file_id 배열
+    prev_chats: Optional[List[str]] = None  # 업로드된 file_id 배열
     chat_id: Optional[int] = None
     disease_code: Optional[str] = None
     product_id: Optional[str] = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    # @classmethod
+    # def as_form(
+    #         cls,
+    #         text: str = Form(...),
+    #         prev_chats: Optional[str] = Form(None),
+    #         chat_id: Optional[str] = Form(None),
+    #         disease_code: Optional[str] = Form(None),
+    #         product_id: Optional[str] = Form(None),
+    # ) -> "AskBody":
+    #     pre_chat = json.loads(prev_chats) if prev_chats else None
 
-    @classmethod
-    def as_form(
-            cls,
-            text: str = Form(...),
-            attachment_ids: Optional[str] = Form(None),
-            chat_id: Optional[str] = Form(None),
-            disease_code: Optional[str] = Form(None),
-            product_id: Optional[str] = Form(None),
-    ) -> "AskBody":
-        ids = json.loads(attachment_ids) if attachment_ids else None
+    #     parsed_chat_id: Optional[int] = None
+    #     if chat_id:
+    #         try:
+    #             parsed_chat_id = int(chat_id)
+    #         except ValueError:
+    #             raise HTTPException(status_code=422, detail="Invalid chat_id")
 
-        parsed_chat_id: Optional[int] = None
-        if chat_id:
-            try:
-                parsed_chat_id = int(chat_id)
-            except ValueError:
-                raise HTTPException(status_code=422, detail="Invalid chat_id")
-
-        return cls(
-            text=text,
-            attachment_ids=ids,
-            chat_id=parsed_chat_id,
-            disease_code=disease_code,
-            product_id=product_id,
-        )
+    #     return cls(
+    #         text=text,
+    #         prev_chats=pre_chat,
+    #         chat_id=parsed_chat_id,
+    #         disease_code=disease_code,
+    #         product_id=product_id,
+    #     )
 
 ###### 되도록 지우지 말아주세요 ######
 @router.get("/chats", response_model=List[chatSchema.Chat])
@@ -130,11 +127,13 @@ async def update_message_state(chat_id: int, db: AsyncSession = Depends(get_db))
 @router.post("/ask")
 async def ask(
     background_tasks: BackgroundTasks,
-    form_data: AskBody = Depends(AskBody.as_form),
+    data: AskBody,
     current_user: userSchema.UserRead = Depends(deps.get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    body = form_data
+    body = data
+    print("########### [DEBUG] ###########")
+    print(body)
     try:
         # 1) 채팅 시작 시 create_chat
         if not body.chat_id:
@@ -180,7 +179,7 @@ async def ask(
             chat_id,
             current_user.user_id,
             body.text,
-            body.attachment_ids,
+            body.prev_chats,
             body.disease_code,
             body.product_id,
         )
