@@ -68,6 +68,13 @@ async def get_last_message(db: AsyncSession, chat_id: int):
     )
     return result.scalars().first()
 
+# 특정 chat_id에 대해 가장 마지막 어시스턴트 메세지 불러오기
+async def get_last_user_message(db: AsyncSession, chat_id: int):
+    result = await db.execute(
+        select(chatModel.Message).where(chatModel.Message.chat_id == chat_id, chatModel.Message.role == "user").order_by(chatModel.Message.created_at.desc())
+    )
+    return result.scalars().first()
+
 # 특정 chat_id로 채팅방 정보 불러오기
 async def get_chat(db: AsyncSession, chat_id: int) -> chatModel.Chat | None:
     result = await db.execute(
@@ -90,12 +97,14 @@ async def update_chat_type(db: AsyncSession, chat_id: int, new_type: str):
 # 어시스턴트의 최신 메세지에 타입을 추가하고, 채팅방의 타입 목록도 갱신
 async def update_message_type(db: AsyncSession, chat_id:int, message_type: str):
     message = await get_last_message(db, chat_id)
+    user_message = await get_last_user_message(db, chat_id)
     if not message:
         return None
     chat = await get_chat(db, chat_id)
 
     # 메세지 타입 갱신
     message.type = message_type
+    user_message.type = message_type
 
     # 채팅방 타입 목록 갱신
     if chat and message_type and message_type not in chat.type:
