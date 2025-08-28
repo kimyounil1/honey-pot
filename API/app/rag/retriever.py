@@ -37,6 +37,7 @@ COVERAGE_SYS = """너는 한국 보험 약관/요약서 텍스트에서 보장 �
 정확히 일치하지 않으면 가장 가까운 항목 1개를 선택하고 notes에 "fuzzy: <원문표현>"을 남겨.
 segment는 ['입원','외래','처방','응급'] 중 선택, benefit_type은 ['급여','비급여','선택'] 중 선택.
 숫자는 KRW 기준 정수(원) 또는 소수점 2자리. 범위/~ 표기는 단일 수치로 정규화.
+coverage_order는 int형(정수)로 문서의 UI/설명을 표시하는 순서.
 JSON 배열만 출력:
 [
   {
@@ -51,7 +52,7 @@ JSON 배열만 출력:
     "combined_cap_amount": 3500000,
     "frequency_limit": 50,
     "frequency_period": "year|contract|null",
-    "coverage_order": 10,
+    "coverage_order": 1,
     "notes": "설명/주석",
     "source_ref": "근거 구절/페이지"
   }
@@ -791,6 +792,8 @@ def reduce_coverage(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             if not cur.get(f) and it.get(f):
                 cur[f] = it[f]
     # 리스트 반환(정렬은 coverage_order → name)
+    # print(lambda d: (d.get("coverage_order") or 9999, str(d.get("name") or "")))
+    print(agg.values())
     return sorted(agg.values(), key=lambda d: (d.get("coverage_order") or 9999, str(d.get("name") or "")))
 
 def reduce_premiums(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
