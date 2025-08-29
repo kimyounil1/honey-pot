@@ -344,7 +344,6 @@ export default function ChatPage() {
 
     try {
       const response = await sendChatRequest(outgoing as any[], chatId);
-
       if (response?.chat_id && !chatId) {
         router.push(`/chat/${response.chat_id}`);
         fetchChatSessions?.();
@@ -532,6 +531,7 @@ export default function ChatPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await submitMessage(input, { clearInput: true });
+    console.log(messages)
   };
 
   // FAQ 클릭

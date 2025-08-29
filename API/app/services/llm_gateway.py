@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import os
 import asyncio
+import logging
 from typing import Any, Dict, List, Optional
 from openai import OpenAI
 
@@ -9,6 +10,7 @@ CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "gpt-4o-mini")
 ANSWERER_MODEL   = os.getenv("ANSWERER_MODEL",   "gpt-4o")
 
 _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+body_logger = logging.getLogger("debug.body")  # 전용 로거
 
 def _to_transcript(chat_meta: Optional[Dict[str, Any]], user_text: str) -> str:
     """
@@ -77,8 +79,17 @@ def run_classifier_llm(user_text: str, chat_meta: Optional[Dict[str, Any]] = Non
         {"role": "system", "content": system_meta},
         {"role": "user", "content": f"<<CONTEXT>>\n{user_context}\n<<END>>"}
     ]
-    print("############ [LLM DEBUG] ############")
-    print(messages)
+
+    try:
+        payload_str = json.dumps(
+            messages.model_dump() if hasattr(messages, "model_dump") else messages.__dict__,
+            ensure_ascii=False,
+            default=str
+        )
+    except Exception:
+        # 혹시라도 직렬화 실패 시 문자열 fallback
+        payload_str = "\n############ [LLM DEBUG] ############\n" + str(messages)
+    body_logger.info(payload_str)
 
     resp = _client.chat.completions.create(
         model=CLASSIFIER_MODEL,
@@ -87,8 +98,9 @@ def run_classifier_llm(user_text: str, chat_meta: Optional[Dict[str, Any]] = Non
         response_format={"type": "json_object"}  # JSON 모드
     )
     content = (resp.choices[0].message.content or "").strip()
-    print("############ [LLM DEBUG2] ############")
-    print(content)
+
+    payload_str = "\n############ [LLM DEBUG2] ############\n" + str(content)
+    body_logger.info(payload_str)
 
     try:
         return json.loads(content)

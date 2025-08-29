@@ -19,7 +19,7 @@ from app.auth import deps
 from app.database import get_db, AsyncSessionLocal
 from app.services.state_update import process_assistant_message
 
-logger = logging.getLogger(__name__)
+body_logger = logging.getLogger("debug.body")  # 전용 로거
 router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(deps.get_current_user)])
 
 class AskBody(BaseModel):
@@ -30,32 +30,6 @@ class AskBody(BaseModel):
     chat_id: Optional[int] = None
     disease_code: Optional[str] = None
     product_id: Optional[str] = None
-
-    # @classmethod
-    # def as_form(
-    #         cls,
-    #         text: str = Form(...),
-    #         prev_chats: Optional[str] = Form(None),
-    #         chat_id: Optional[str] = Form(None),
-    #         disease_code: Optional[str] = Form(None),
-    #         product_id: Optional[str] = Form(None),
-    # ) -> "AskBody":
-    #     pre_chat = json.loads(prev_chats) if prev_chats else None
-
-    #     parsed_chat_id: Optional[int] = None
-    #     if chat_id:
-    #         try:
-    #             parsed_chat_id = int(chat_id)
-    #         except ValueError:
-    #             raise HTTPException(status_code=422, detail="Invalid chat_id")
-
-    #     return cls(
-    #         text=text,
-    #         prev_chats=pre_chat,
-    #         chat_id=parsed_chat_id,
-    #         disease_code=disease_code,
-    #         product_id=product_id,
-    #     )
 
 ###### 되도록 지우지 말아주세요 ######
 @router.get("/chats", response_model=List[chatSchema.Chat])
@@ -132,9 +106,18 @@ async def ask(
     db: AsyncSession = Depends(get_db)
 ):
     body = data
-    print("########### [DEBUG] ###########")
-    print(body)
     try:
+        try:
+            payload_str = json.dumps(
+                body.model_dump() if hasattr(body, "model_dump") else body.__dict__,
+                ensure_ascii=False,
+                default=str
+            )
+        except Exception:
+            # 혹시라도 직렬화 실패 시 문자열 fallback
+            payload_str = str(body)
+        body_logger.info(payload_str+'\n')
+
         # 1) 채팅 시작 시 create_chat
         if not body.chat_id:
             newChat = await chatCRUD.create_chat(
@@ -193,5 +176,4 @@ async def ask(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Server error in /chat/ask: %s", e)
         raise HTTPException(status_code=500, detail="Internal Server Error")
