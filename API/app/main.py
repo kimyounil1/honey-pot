@@ -4,6 +4,7 @@ from datetime import date
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.logging_conf import setup_logging
 from app.database import Base, engine, AsyncSessionLocal
 from app.services.non_benefit_seed import maybe_seed_on_start
 from app.routers import user, policy, claim, chat, document, test, non_benefit, ocr, sync
@@ -11,7 +12,12 @@ from app.crud import userCRUD
 from app.schemas import userSchema
 from contextlib import asynccontextmanager
 from app.models.enums import product_type_enum, renewal_type_enum
-import app.models
+
+# 로그 디렉토리 준비
+LOG_DIR = os.getenv("APP_LOG_DIR", "/src/app/log")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+setup_logging(LOG_DIR)
 
 async def create_db_and_tables():
     async with engine.begin() as conn:
