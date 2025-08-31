@@ -89,41 +89,52 @@ async def read_chat_messages(
     return messages
 
 TIMEOUT_SECONDS = 1.0
+
 @router.get("/{chat_id}/messageState", response_model=chatSchema.MessageStateResponse)
-async def read_message_state(chat_id: int, current_user: userSchema.UserRead = Depends(deps.get_current_user)):
+async def read_message_state(
+    chat_id: int,
+    current_user: userSchema.UserRead = Depends(deps.get_current_user),
+):
     try:
         # ✅ 별도 세션(짧게 열고 빨리 닫기). 기존 db 세션 대신 사용.
         async with AsyncSessionLocal() as s:
-            # Postgres 기준: 읽기 전용 + 1s 쿼리 타임아웃
+            # Postgres 기준: 읽기 전용 + 1s 쿼리 타임아웃 (미지원 DB면 무시)
+            try:
+                await s.execute(text("SET LOCAL statement_timeout = 1000"))
+                await s.execute(text("SET TRANSACTION READ ONLY"))
+            except Exception:
+                pass
 
-            await s.execute(text("SET LOCAL statement_timeout = 1000"))
-            await s.execute(text("SET TRANSACTION READ ONLY"))
-
-            # print("########### get_char 호출시작 ###########")
             chat = await asyncio.wait_for(chatCRUD.get_chat(s, chat_id), timeout=TIMEOUT_SECONDS)
-            # print("########### get_char 호출종료 ###########")
             if not chat:
                 raise HTTPException(status_code=404, detail="no chat")
             if (chat.user_id != current_user.user_id and current_user.user_id != 1):
                 raise HTTPException(status_code=403, detail="You do not have permission to access this chat.")
 
-            # print("########### get_last_message 호출시작 ###########")
             last_message = await asyncio.wait_for(chatCRUD.get_last_message(s, chat_id), timeout=TIMEOUT_SECONDS)
-            # print("########### get_last_message 호출종료 ###########")
 
-        return chatSchema.MessageStateResponse(state=last_message.state)
+        # ✅ last_message가 없거나 state가 비어 있어도 안전하게 반환
+        state = getattr(last_message, "state", None) or "commencing"
+        return chatSchema.MessageStateResponse(state=state)
 
     except asyncio.TimeoutError:
         # 폴링이므로 504로 빠르게 실패 → 클라가 0.3s 후 재시도
         raise HTTPException(status_code=504, detail="messageState timed out (>1s)")
+    except HTTPException:
+        # 위에서 올린 4xx는 그대로 전달
+        raise
+    except Exception as e:
+        logger.exception("messageState error (chat_id=%s): %s", chat_id, e)
+        # 폴링이 끊기지 않게 'commencing'으로 다운그레이드
+        return chatSchema.MessageStateResponse(state="commencing")
     
 @router.get("/{chat_id}/messageState/complete")
 async def update_message_state(chat_id: int, db: AsyncSession = Depends(get_db)):
     try:
-        # ✅ 별도 세션(짧게 열고 빨리 닫기). 기존 db 세션 대신 사용.
-            await chatCRUD.update_message_state(db, chat_id, "complete")
-            await db.commit()
+        await chatCRUD.update_message_state(db, chat_id, "complete")
+        await db.commit()
     except Exception as e:
+        # 조용히 무시 (폴링 종료 신호이므로 실패해도 UI흐름 유지)
         pass
     return chatSchema.MessageStateResponse(state="complete")
 

@@ -62,18 +62,38 @@ async def get_messages(db:AsyncSession, chat_id: int):
     return result.scalars().all()
 
 # 특정 chat_id에 대해 가장 마지막 어시스턴트 메세지 불러오기
-async def get_last_message(db: AsyncSession, chat_id: int):
+async def get_last_user_message(db: AsyncSession, chat_id: int):
     result = await db.execute(
-        select(chatModel.Message).where(chatModel.Message.chat_id == chat_id, chatModel.Message.role == "assistant").order_by(chatModel.Message.created_at.desc())
+        select(chatModel.Message)
+        .where(
+            chatModel.Message.chat_id == chat_id,
+            chatModel.Message.role == "user",
+        )
+        .order_by(chatModel.Message.created_at.desc())
     )
     return result.scalars().first()
 
-# 특정 chat_id에 대해 가장 마지막 어시스턴트 메세지 불러오기
-async def get_last_user_message(db: AsyncSession, chat_id: int):
-    result = await db.execute(
-        select(chatModel.Message).where(chatModel.Message.chat_id == chat_id, chatModel.Message.role == "user").order_by(chatModel.Message.created_at.desc())
-    )
-    return result.scalars().first()
+# ✅ 마지막 'user' 메시지의 type 갱신 + chat.type에 중복 없이 반영
+async def update_last_user_message_type(db: AsyncSession, chat_id: int, message_type: str):
+    msg = await get_last_user_message(db, chat_id)
+    if not msg:
+        return None
+    chat = await get_chat(db, chat_id)  # 기존에 있는 함수
+
+    msg.type = message_type
+
+    if chat:
+        # chat.type 이 ARRAY(TEXT) 또는 JSON(list)이라 가정
+        current = list(chat.type or [])
+        if message_type and message_type not in current:
+            current.append(message_type)
+            chat.type = current
+
+    await db.commit()
+    await db.refresh(msg)
+    return msg
+
+
 
 # 특정 chat_id로 채팅방 정보 불러오기
 async def get_chat(db: AsyncSession, chat_id: int) -> chatModel.Chat | None:
@@ -131,6 +151,33 @@ async def update_message_content(db: AsyncSession, chat_id:int, message_content:
         await db.commit()
         await db.refresh(message)
     return message
+
+
+
+
+# 가장 마지막 메시지(역할 무관) 1건
+async def get_last_message(db: AsyncSession, chat_id: int):
+    result = await db.execute(
+        select(chatModel.Message)
+        .where(chatModel.Message.chat_id == chat_id)
+        .order_by(chatModel.Message.created_at.desc(), chatModel.Message.id.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
+
+# (선택) 마지막 assistant 메시지 1건 — 필요시 사용
+async def get_last_assistant_message(db: AsyncSession, chat_id: int):
+    result = await db.execute(
+        select(chatModel.Message)
+        .where(
+            chatModel.Message.chat_id == chat_id,
+            chatModel.Message.role == "assistant",
+        )
+        .order_by(chatModel.Message.created_at.desc(), chatModel.Message.id.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
+
 
 
 # ========================================

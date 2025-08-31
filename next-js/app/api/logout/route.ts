@@ -1,16 +1,26 @@
-import { NextResponse } from "next/server";
+// app/api/logout/route.ts
+import { NextRequest, NextResponse } from "next/server";
 
-export async function GET() {
-  // 응답 객체를 먼저 생성합니다.
-  const baseUrl = process.env.BASE_URL
-  const response = NextResponse.redirect(new URL("/", baseUrl));
+export const runtime = "nodejs";
 
-  // 쿠키를 삭제합니다. (maxAge: 0)
-  response.cookies.set("access_token", "", {
-    httpOnly: true,
+export async function GET(req: NextRequest) {
+  // 요청에서 확실한 절대 origin 확보
+  const { origin } = new URL(req.url);
+
+  // 리다이렉트 응답 생성
+  const res = NextResponse.redirect(new URL("/", origin));
+
+  // 로그인 쿠키들 제거 (필요한 이름 모두)
+  const cookieOpts = {
     path: "/",
-  });
-    maxAge: 0
+    httpOnly: true as const,
+    sameSite: "lax" as const,
+    maxAge: 0,
+    expires: new Date(0),
+  };
+  res.cookies.set("access_token", "", cookieOpts);
+  // refresh_token을 쓰고 있다면 같이 삭제
+  res.cookies.set("refresh_token", "", cookieOpts);
 
-  return response;
+  return res;
 }

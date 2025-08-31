@@ -105,3 +105,15 @@ app.include_router(sync.router)  # include 추가
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+# 기간 암박 청구 팝업
+# main.py
+from app.routers import claim_timeline as claim_timeline_router, notifications as notifications_router
+app.include_router(claim_timeline_router.router)
+app.include_router(notifications_router.router)
+
+from app.services.scheduler import setup_scheduler
+@app.on_event("startup")
+async def _start_claim_scheduler():
+    await setup_scheduler(app)

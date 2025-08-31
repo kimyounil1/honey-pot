@@ -2,6 +2,7 @@
 
 import { useRouter, useParams } from "next/navigation"
 import { useState, useEffect, useMemo, useRef } from "react"
+import dynamic from "next/dynamic"                    
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -20,6 +21,14 @@ import PolicyAnalysisModal from "./policy-analysis-modal"
 import RefundFinderModal from "./refund-finder-modal"
 import RecommendationModal from "./recommendation-modal"
 import FileSubmitModal from "./file-submit-modal"
+
+// ✅ 팝업을 클라이언트에서만 렌더 (SSR 비활성)
+
+const DeadlinePopup = dynamic(
+  () => import("@/components/ui/deadline-popup"),
+  { ssr: false }
+);
+
 
 interface ChatSession {
   id: number;
@@ -64,10 +73,8 @@ function TopBanner({
   if (!open) return null;
   const base =
     'fixed top-4 left-1/2 -translate-x-1/2 z-50 ' +
-    // 내용폭 / 여백 / 둥근 / 그림자 / 유리효과
     'max-w-md w-[calc(100%-2rem)] px-4 py-2 rounded-xl shadow-lg ' +
     'backdrop-blur-lg ring-1 ring-white/10 ' +
-    // 등장/퇴장 애니메이션
     'transition-all duration-300 ease-out animate-in fade-in slide-in-from-top-2'
   const color =
     type === 'success'
@@ -81,7 +88,6 @@ function TopBanner({
   return (
     <div className={`${base} ${color}`} role="status" aria-live="polite" style={{ pointerEvents: 'auto' }}>
       <div className="flex items-center gap-2 text-sm font-medium">
-        {/* 선택: 타입별 아이콘 살짝 */}
         {type === 'success' && (
           <span aria-hidden className="i-lucide:check-circle-2 size-4" />
         )}
@@ -193,8 +199,6 @@ export default function ChatPage() {
           await fetchChatHistory(chatId);
           active = false;
 
-          // 이미 서버가 complete를 주는 상황이면 아래 호출은 선택사항
-          // 실패(Abort 등)하더라도 폴링 종료에는 영향 없게 try/catch
           try {
             await fetch(`/api/chat/${chatId}/messageState/complete?t=${Date.now()}`, {
               cache: "no-store",
@@ -208,7 +212,6 @@ export default function ChatPage() {
         if (e?.name !== "AbortError") {
           console.error(e);
         }
-        // 에러여도 active가 true면 재시도 예약
       }
 
       if (active) {
@@ -241,9 +244,7 @@ export default function ChatPage() {
         });
         if (!res.ok) throw new Error(`API Error: ${res.status}`);
         const data = await res.json();
-        // console.log("******결과:",data)
         setMessageState(data.state as MessageState);
-        // 백엔드에 자징되는 complete state 추가
         if (data.state === 'done' || data.state === 'failed') {
           await fetchChatHistory(chatId);
           active = false; // 종료
@@ -255,10 +256,8 @@ export default function ChatPage() {
           return;
         }
       } catch (e: any) {
-        // AbortError면 종료하지 않음(대개 언마운트/전환 시 발생)
         if (e?.name !== 'AbortError') {
           console.error(e);
-          // 일시적 에러면 약간 대기 후 재시도
         }
       }
 
@@ -289,7 +288,6 @@ export default function ChatPage() {
       }
       const historyData: Message[] = await response.json()
       if (historyData.length === 0 && !allowEmptyReplace) {
-      // 진행 중(서버 히스토리 미기록)엔 로컬 플레이스홀더 유지
         return;
       }
       const messagesWithClientIds = historyData.map((message: any) => ({
@@ -442,7 +440,7 @@ export default function ChatPage() {
   const handleFileSubmit = async (file: File) => {
     try {
       const fd = new FormData()
-      fd.append("file", file)           // 단일 파일
+      fd.append("file", file)
       showBanner("파일 첨부중...", "loading")
       
       const uploadRes = await fetch("/api/file", { method: "POST", body: fd })
@@ -452,7 +450,6 @@ export default function ChatPage() {
       if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`)
       showBanner("파일 첨부 완료", "success")
 
-      // 성공: JSON이면 파싱 시도, 아니면 raw 그대로 사용
       let data: any = raw
       if(ct.includes("application/json")){
         try {
@@ -461,13 +458,12 @@ export default function ChatPage() {
           console.warn("Failed to parse JSON, using raw text: ", raw)
         }
       }
-      // 예: 백엔드(oct.py) 응답 모델 대응
       if (data?.result_code === "SUCCESS") {
         pendingUploadRef.current = {
-        product_id: data.product_id ?? null,
-        disease_code: data.disease_code ?? null,
-      } 
-    }
+          product_id: data.product_id ?? null,
+          disease_code: data.disease_code ?? null,
+        } 
+      }
     } catch (e) {
       window.alert(e)
     } finally {
@@ -543,7 +539,6 @@ export default function ChatPage() {
     router.push('/chat');
     setMessages([]);
     setLastMessage(null);
-    // setHasActiveThread(false);
   }
 
   const displayedMessages = lastMessage ? [...messages, lastMessage] : messages;
@@ -552,6 +547,8 @@ export default function ChatPage() {
   return (
     <div className="flex h-screen bg-gray-50">
       <TopBanner open={bannerOpen} text={bannerText} type={bannerType} />
+      <DeadlinePopup />  {/* 하단 팝업 */}
+
       {/* Sidebar */}
       <div
         className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 w-80 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col`}
