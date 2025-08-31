@@ -2,15 +2,22 @@
 export async function sendChatRequest(message: any[], chatId?: number,){
   const url = chatId ? `/api/chat/${chatId}` : `/api/chat`
     try {
-        const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: message.map(({id, ...rest }) => rest),
+        const last = message[message.length-1]
+        const payload = {
+          role: "user",
+          text: last?.content ?? "",
+          prev_chats: message.slice(0, -1).map((m: any) => m.content), 
           chat_id: chatId,
-          // attachment: userMessage.attachment ?? null,
-        }),
-      })
+          disease_code: last?.attachment?.disease_code ?? null,
+          product_id: last?.attachment?.product_id ?? null,
+        }
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+
       if (!response.ok || !response.body) {
         const errorText = await response.text()
         throw new Error(`Server error: ${errorText || response.statusText}`)

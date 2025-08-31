@@ -28,14 +28,15 @@ class FlowDecision:
     entities: Dict[str, Any] = field(default_factory=dict)
     retrieval_suggestion: RetrievalSuggestion = RetrievalSuggestion.AUTO
     use_retrieval: bool = False
+    text: str = ""
 
 # ================== RAG 스위치 정책 ==================
 _FORCE_OFF = ["근거 없이", "출처 없이", "인용 빼고", "대략만", "대충만"]
 _HINT_RAG  = ["근거", "조항", "출처", "면책", "원문", "링크", "증빙", "첨부", "파일"]
 
 def decide_use_retrieval(
-    user_text: str,
-    n_attachments: int,
+    text: str,
+    # n_attachments: int,
     mode: Mode,
     suggestion: RetrievalSuggestion
 ) -> bool:
@@ -49,13 +50,13 @@ def decide_use_retrieval(
     if mode == Mode.GENERAL:
         return False
 
-    txt = (user_text or "").strip()
+    txt = (text or "").strip()
 
     if any(k in txt for k in _FORCE_OFF):
         return False
 
-    if n_attachments > 0:
-        return mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND)
+    # if n_attachments > 0:
+    #     return mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND)
 
     if any(k in txt for k in _HINT_RAG):
         return mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND)
@@ -92,16 +93,27 @@ def _map_suggestion(s: str) -> RetrievalSuggestion:
     except Exception:
         return RetrievalSuggestion.AUTO
 
-def decide_flow_with_llm(user_text: str, attachment_ids: List[str]) -> FlowDecision:
+def decide_flow_with_llm(user_text: str, prev_chats: List[str]) -> FlowDecision:
     """
     내부에서 경량 분류 LLM을 호출하고 서버 정책으로 RAG 스위치를 최종 결정.
     """
     # 지연 임포트로 순환 참조 방지
     from .llm_gateway import run_classifier_llm
-
-    meta = {"count": len(attachment_ids or [])}
+ 
+    # 기존코드:
+    # meta = {"count": len(prev_chats or [])}
+    meta = dict()
+    for i in range(len(prev_chats)):
+        # 유저 이전채팅
+        if i % 2 == 0:
+            role = "user" + str(i%2)
+        # 어시스턴트 이전채팅
+        else:
+            role = "assistant" + str((i-1)%2)
+        meta[role] = prev_chats[i]
+    
     try:
-        raw = run_classifier_llm(user_text=user_text, attachments_meta=meta)
+        raw = run_classifier_llm(user_text=user_text, chat_meta=meta)
     except Exception:
         return FlowDecision(
             flow=Mode.GENERAL, confidence=0.0, reasons="classifier_error",
@@ -114,15 +126,16 @@ def decide_flow_with_llm(user_text: str, attachment_ids: List[str]) -> FlowDecis
     sug   = _map_suggestion(raw.get("retrieval_suggestion", "auto"))
     rsn   = (raw.get("reasons") or "")[:500]
     tags  = raw.get("tags", []) or []
+    text  = raw.get("text", "") 
 
     use_ret = decide_use_retrieval(
-        user_text=user_text,
-        n_attachments=meta["count"],
+        text=text,
+        # n_attachments=meta["count"],
         mode=mode,
         suggestion=sug
     )
 
     return FlowDecision(
         flow=mode, confidence=conf, reasons=rsn, tags=tags,
-        entities=ents, retrieval_suggestion=sug, use_retrieval=use_ret
+        entities=ents, retrieval_suggestion=sug, use_retrieval=use_ret, text=text
     )

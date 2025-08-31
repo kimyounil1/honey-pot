@@ -328,7 +328,7 @@ def retrieve(
     mode,
     user_id: str,
     query: str,
-    attachment_ids: List[str] | None = None,
+    prev_chats: List[str] | None = None,
     product_id: Optional[str] = None,
     limit: int = 20,
     fallback_to_global: bool = False,
