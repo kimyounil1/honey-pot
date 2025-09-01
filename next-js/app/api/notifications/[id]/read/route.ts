@@ -1,30 +1,36 @@
+// /app/api/notifications/[id]/read/route.ts
+import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function getTokenOr401() {
-  const token = cookies().get("access_token")?.value;
-  if (!token) return new NextResponse("Unauthorized", { status: 401 });
-  return token;
+const API = "http://API:8000";
+
+async function readAccessToken(): Promise<string | null> {
+  const store = await cookies(); // ✅ 반드시 await
+  return store.get("access_token")?.value ?? null;
 }
 
 export async function POST(
-  _req: NextRequest,
+  _req: Request,
   { params }: { params: { id: string } }
 ) {
-  const token = getTokenOr401();
-  if (token instanceof NextResponse) return token;
+  const token = await readAccessToken();
+  if (!token) return new NextResponse("Unauthorized", { status: 401 });
 
-  const res = await fetch(`http://API:8000/notifications/${params.id}/read`, {
+  const res = await fetch(`${API}/notifications/${params.id}/read`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
 
   if (!res.ok) {
-    const body = await res.text();
-    return new NextResponse(body, { status: res.status });
+    const body = await res.text().catch(() => "");
+    return new NextResponse(body || "Upstream error", { status: res.status });
   }
-  return NextResponse.json({ ok: true });
+
+  const data = await res.json();
+  return NextResponse.json(data);
 }

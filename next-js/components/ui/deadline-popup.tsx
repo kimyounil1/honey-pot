@@ -17,6 +17,7 @@ type Timeline = {
   id: number;
   expected_amount: number | null;
   deadline_date: string;
+  is_muted?: boolean;
 };
 
 async function fetchJSON<T>(url: string, init?: RequestInit) {
@@ -40,10 +41,11 @@ export default function DeadlinePopup() {
           fetchJSON<Timeline[]>("/api/claim-timeline"),
         ]);
         if (!mounted) return;
-        const unread = ns.filter((n) => !n.is_read);
-        setNotis(unread);
+
+        // ✅ 읽음 여부와 무관하게 그대로 사용 (백엔드에서 이미 mute만 필터)
+        setNotis(ns);
         setTimelines(ts);
-        setOpen(unread.length > 0);
+        setOpen(ns.length > 0); // ✅ unread 조건 제거
       } catch {
         // 로그인 전/알림 없음 → 무시
       } finally {
@@ -55,34 +57,41 @@ export default function DeadlinePopup() {
     };
   }, []);
 
+  const relatedIds = useMemo(() => new Set(notis.map((n) => n.timeline_id)), [notis]);
+
   const totalAmount = useMemo(() => {
-    const ids = new Set(notis.map((n) => n.timeline_id));
     return timelines
-      .filter((t) => ids.has(t.id))
+      .filter((t) => relatedIds.has(t.id))
       .reduce((acc, t) => acc + (t.expected_amount ?? 0), 0);
-  }, [notis, timelines]);
+  }, [relatedIds, timelines]);
 
   const earliestDeadline = useMemo(() => {
-    const ids = new Set(notis.map((n) => n.timeline_id));
     return timelines
-      .filter((t) => ids.has(t.id))
+      .filter((t) => relatedIds.has(t.id))
       .map((t) => t.deadline_date)
       .sort()[0];
-  }, [notis, timelines]);
+  }, [relatedIds, timelines]);
 
   if (loading || !open || notis.length === 0) return null;
 
-  const onDismiss = async () => {
+  // 닫기: 읽음 처리 여부는 선택.
+  // 요구사항: 읽어도 로그인 시 다시 떠야 하므로 굳이 mark_read 안 해도 됨.
+  const onCloseOnly = async () => {
     setOpen(false);
+    // 필요하면 읽음 처리 유지:
+    // await Promise.all(notis.map((n) => fetch(`/api/notifications/${n.id}/read`, { method: "POST" })));
+  };
+
+  // 다시 보지 않기: 관련 타임라인 모두 mute
+  const onNeverShow = async () => {
     try {
       await Promise.all(
-        notis.map((n) =>
-          fetch(`/api/notifications/${n.id}/read`, { method: "POST" })
+        Array.from(relatedIds).map((id) =>
+          fetch(`/api/claim-timeline/${id}/mute`, { method: "POST" })
         )
       );
-    } catch {
-      // 무시
-    }
+    } catch {}
+    setOpen(false);
   };
 
   return (
@@ -117,7 +126,14 @@ export default function DeadlinePopup() {
             지금 확인하기
           </a>
           <button
-            onClick={onDismiss}
+            onClick={onNeverShow}
+            className="inline-flex items-center rounded-xl border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            title="해당 마감 타임라인을 앞으로 표시하지 않습니다."
+          >
+            다시 보지 않기
+          </button>
+          <button
+            onClick={onCloseOnly}
             className="inline-flex items-center rounded-xl border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
             닫기
