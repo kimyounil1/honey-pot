@@ -20,6 +20,9 @@ from app.models import (
     ComplementarityRules,
     CoverageItem,
 )
+from typing import List, Optional
+from sqlalchemy import MetaData, Table, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 # watsonx.ai (pip install ibm-watsonx-ai)
 try:
@@ -109,45 +112,41 @@ def _os_client() -> OpenSearch:
         use_ssl=True,
         verify_certs=True,
         connection_class=RequestsHttpConnection,
+        timeout=30,
     )
 
 def _trim(s: str, n: int = 120) -> str:
     s = (s or "").replace("\n", " ").strip()
     return (s[:n] + "…") if len(s) > n else s
 
-def _search_snippets(query: str, k: int = 8, policy_id: Optional[str] = None) -> List[Dict[str, Any]]:
+def _search_snippets(query: str, k: int = 8, policy_id: Optional[str] = None, policy_ids: Optional[List[str]] = None,) -> List[Dict[str, Any]]:
     index = getattr(settings, "OPENSEARCH_INDEX", None)
 
-    if policy_id:
-        filter_block = [{
-            "bool": {
-                "should": [
-                    {"term": {"policy_id": policy_id}}
-                ]
-            }
-        }]
-
-        must_block: List[Dict[str, Any]] = []
-        if (query or "").strip():
-            must_block.append({
+    must_block: List[Dict[str, Any]] = []
+    if (query or "").strip():
+        must_block.append(
+            {
                 "multi_match": {
                     "query": query,
-                    "fields": ["content^2", "section_title", "embed_input", "text"],
+                    "fields": ["content^2", "embed_input", "text"],
                     "type": "best_fields",
                     "operator": "or",
                 }
-            })
-        else:
-            must_block.append({"match_all": {}})
+            }
+        )
+    else:
+        must_block.append({"match_all": {}})
 
+    filter_block = []
+    if policy_id:
+        filter_block.append({"term": {"policy_id": policy_id}})
+    elif policy_ids:
+        filter_block.append({"terms": {"policy_id": policy_ids}})
+
+    if policy_id or policy_ids:
         body: Dict[str, Any] = {
             "size": max(1, min(k, 20)),
-            "query": {
-                "bool": {
-                    "filter": filter_block,
-                    "must": must_block,
-                }
-            },
+            "query": {"bool": {"filter": filter_block, "must": must_block}},
             "_source": True,
         }
     else:
@@ -158,7 +157,7 @@ def _search_snippets(query: str, k: int = 8, policy_id: Optional[str] = None) ->
                     "query": query,
                     "fields": ["section_title^2", "content"],
                     "type": "best_fields",
-                    "tie_breaker": 0.2
+                    "tie_breaker": 0.2,
                 }
             },
             "_source": True,
@@ -196,7 +195,7 @@ def _search_snippets(query: str, k: int = 8, policy_id: Optional[str] = None) ->
             "policy_id": s.get("policy_id", "") or s.get("policy", ""),
             "effective_date": s.get("effective_date", ""),
         })
-
+    print(out)
     # 검색 결과 요약 로그(상위 1개만 제목 찍기)
     logger.debug(
         "[RAG][OS_OK] index=%s total=%d k=%d top_title=%s query=%s",
@@ -294,7 +293,7 @@ def _fit_snippets_to_limit(
 
 def _rag_prompt(user_query: str, context_block: str) -> str:
     return (
-        "당신은 제공된 컨텍스트만 근거로 답하는 보험 도메인 RAG 어시스턴트입니다.\n"
+        "당신은 제공된 컨텍스트만 근거로 답하는 보험 도메인 RAG 어시스턴트입니다. 단계별 설명은 생략하고 출력 형식의 내용을 자세하게 적어줘\n"
         "규칙:\n"
         "1) 컨텍스트 밖 지식 사용 금지.\n"
         "2) 금액/한도/면책 등 수치는 인용 근거와 함께 제시.\n"
@@ -323,7 +322,7 @@ def _wx_generate_answer(prompt: str) -> str:
         return ""
 
 # ============================= Public API =============================
-def retrieve(
+async def retrieve(
     *,
     mode,
     user_id: str,
@@ -333,20 +332,41 @@ def retrieve(
     limit: int = 20,
     fallback_to_global: bool = False,
     db_context: str | None = None,
-
 ) -> str:
     try:
+        snippets: List[Dict[str, Any]] = []
         if product_id:
             snippets = _search_snippets(query=query, k=limit, policy_id=product_id)
+        elif user_id:
+            user_id_int = int(user_id) if user_id and user_id.isdigit() else 0
+            policy_ids: List[str] = []
+            if user_id_int:
+                async with AsyncSessionLocal() as session:
+                    res = await session.execute(
+                        select(InsurancePolicy.policy_id).where(
+                            InsurancePolicy.user_id == user_id_int
+                        )
+                    )
+                    policy_ids = [pid for pid in res.scalars().all() if pid]
+
+            if policy_ids:
+                snippets = _search_snippets(
+                    query=query, k=limit, policy_ids=policy_ids
+                )
+            elif fallback_to_global:
+                snippets = _search_snippets(query=query, k=limit)
         else:
             snippets = _search_snippets(query=query, k=limit)
+
         context_block, _ = _fit_snippets_to_limit(
             snippets=snippets,
             user_query=query,
         )
-        prompt = _rag_prompt(user_query=query, context_block=context_block+db_context)
+        prompt = _rag_prompt(
+            user_query=query, context_block=context_block + (db_context or "")
+        )
         print("[RAG AUTO PROMPT END]\n" + prompt)
-        answer = _wx_generate_answer(prompt)
+        answer = await _wx_async(prompt)
         print("[RAG AUTO ANSWER END]\n" + answer)
         if (answer or "").strip():
             # 외부(OpenAI) 폴리싱이 컨텍스트로 사용할 수 있게 명확한 헤더 부여
@@ -478,16 +498,16 @@ async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: s
                 res = await session.execute(
                     select(InsurancePolicy.id).where(InsurancePolicy.policy_id == pol_id).order_by(InsurancePolicy.id)
                 )
-                pol_id = res.scalar()
-                if pol_id is None:
+                policy_id = res.scalar()
+                if policy_id is None:
                     return ""
+
                 res = await session.execute(
                     select(PolicyCoverage)
                     .options(selectinload(PolicyCoverage.coverage_item))
-                    .where(PolicyCoverage.policy_id == pol_id)
+                    .where(PolicyCoverage.policy_id == policy_id)  # pol.id를 조건으로 사용
                     .order_by(PolicyCoverage.coverage_order)
                 )
-
                 covs = res.scalars().all()
                 if not covs:
                     return ""
@@ -510,9 +530,13 @@ async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: s
                     if cov.frequency_limit is not None:
                         period = "연" if cov.frequency_period == "year" else "계약"
                         parts.append(f"횟수 {cov.frequency_limit}회/{period}")
+
                     detail = ", ".join(parts)
-                    ref = f" [근거:{cov.source_ref}]" if cov.source_ref else ""
-                    lines.append(f"- {name}: {detail}{ref}")
+
+                    ref = f" [근거: {', '.join(cov.source_ref)}]" if cov.source_ref else ""
+
+                    lines.append(f"- {pol_id}: {detail}{ref}")
+
                 return "\n".join(lines)
             else:
                 return ""

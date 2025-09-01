@@ -13,7 +13,7 @@ from app.crud import chatCRUD, nonBenefitCRUD
 logger = logging.getLogger(__name__)
 
 
-async def _classify(user_text: str, prev_chats: Optional[List[str]]) -> Tuple[Mode, Dict[str, Any], bool]:
+async def _classify(user_text: str, prev_chats: Optional[List[str]]) -> Tuple[Mode, Dict[str, Any], bool, str]:
     # decision = classify_with_llm(user_text, attachment_ids or [])
     """Run the classification LLM in a thread so it doesn't block the event loop."""
     decision = await asyncio.to_thread(classify_with_llm, user_text, prev_chats or [])
@@ -77,8 +77,7 @@ async def prepare_llm_request(
     # 4) (필요 시) RAG 보조
     rag_parts: List[str] = []
     if use_retrieval and mode in (Mode.TERMS, Mode.REFUND):
-        os_block = await asyncio.to_thread(
-            retrieve,
+        os_block = await retrieve(
             mode=mode,
             user_id=str(user_id),
             query=text,
@@ -101,9 +100,9 @@ async def prepare_llm_request(
             try:
                 item = await nonBenefitCRUD.get_by_code(db, code_for_check)
                 if item:
-                    benefit_ctx = f"질병 코드 {code_for_check}는 비급여 항목입니다."
+                    benefit_ctx = f"[ICD-10]\n 질병 코드 {code_for_check}는 비급여 항목입니다."
                 else:
-                    benefit_ctx = f"질병 코드 {code_for_check}는 급여 항목입니다."
+                    benefit_ctx = f"[ICD-10]\n 질병 코드 {code_for_check}는 급여 항목입니다."
             except Exception as e:
                 logger.warning("[STAGE] nonBenefit lookup failed: %s", e)
 
