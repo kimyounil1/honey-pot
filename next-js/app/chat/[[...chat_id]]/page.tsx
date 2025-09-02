@@ -677,7 +677,15 @@ export default function ChatPage() {
             <Button 
               variant="outline" 
               className="text-red-600 border-red-600 hover:bg-red-50 px-3 py-1 text-sm h-auto"
-              onClick={async () => { await fetch("/api/logout"); router.push("/"); }}
+              onClick={async () => { 
+                try { 
+                  await fetch("/api/logout", { method: "POST", cache: "no-store", credentials: "same-origin" }) 
+                } catch(e) {
+                  window.alert(e)
+                } finally{
+                  router.replace("/")
+                }
+              }}
             >
               <LogOut className="mr-2 h-4 w-4" />
               로그아웃
