@@ -35,6 +35,8 @@ except Exception:
     ModelInference = None
 
 logger = logging.getLogger(__name__)
+# body_logger = logging.getLogger("debug.body")
+
 COVERAGE_SYS = """너는 한국 보험 약관/요약서 텍스트에서 보장 항목을 구조화하는 전문가야.
 반드시 내가 제공한 coverage_item 이름 목록 중에서만 name을 선택해.
 정확히 일치하지 않으면 가장 가까운 항목 1개를 선택하고 notes에 "fuzzy: <원문표현>"을 남겨.
@@ -195,7 +197,7 @@ def _search_snippets(query: str, k: int = 8, policy_id: Optional[str] = None, po
             "policy_id": s.get("policy_id", "") or s.get("policy", ""),
             "effective_date": s.get("effective_date", ""),
         })
-    print(out)
+    logger.info(out)
     # 검색 결과 요약 로그(상위 1개만 제목 찍기)
     logger.debug(
         "[RAG][OS_OK] index=%s total=%d k=%d top_title=%s query=%s",
@@ -291,15 +293,18 @@ def _fit_snippets_to_limit(
 
 # ============================= watsonx Generator =============================
 
-def _rag_prompt(user_query: str, context_block: str) -> str:
+def _rag_prompt(user_query: str, context_block: str, history_summary: str = "") -> str:
+    history_sec = f"[HISTORY]\n{history_summary}\n\n" if history_summary else ""
+    # 최신 질문 맨 끝 + 우선순위 규칙 명시
     return (
-        "당신은 제공된 컨텍스트만 근거로 답하는 보험 도메인 RAG 어시스턴트입니다. 단계별 설명은 생략하고 출력 형식의 내용을 자세하게 적어줘\n"
+        "당신은 제공된 컨텍스트만 근거로 답하는 보험 도메인 RAG 어시스턴트입니다.\n"
         "규칙:\n"
-        "1) 컨텍스트 밖 지식 사용 금지.\n"
-        "2) 금액/한도/면책 등 수치는 인용 근거와 함께 제시.\n"
-        "3) 컨텍스트가 부족하면 그 사실을 명시.\n\n"
+        "1) HISTORY/컨텍스트는 참고용이다. CURRENT_QUESTION과 충돌하면 CURRENT_QUESTION을 우선한다.\n"
+        "2) 금액/한도/면책 수치는 반드시 인용 근거와 함께 제시.\n"
+        "3) 컨텍스트가 부족하면 부족함을 명시.\n\n"
+        f"{history_sec}"
         f"{context_block}\n\n"
-        f"[사용자 질문]\n{user_query}\n\n"
+        f"[CURRENT_QUESTION]\n{user_query}\n\n"
         "출력 형식: 요약 → 근거(글머리표) → 유의사항 → 출처"
     )
 
@@ -334,6 +339,7 @@ async def retrieve(
     db_context: str | None = None,
 ) -> str:
     try:
+        # 1) (검색은 최신 질문만 사용) 스니펫 수집
         snippets: List[Dict[str, Any]] = []
         if product_id:
             snippets = _search_snippets(query=query, k=limit, policy_id=product_id)
@@ -350,26 +356,36 @@ async def retrieve(
                     policy_ids = [pid for pid in res.scalars().all() if pid]
 
             if policy_ids:
-                snippets = _search_snippets(
-                    query=query, k=limit, policy_ids=policy_ids
-                )
+                snippets = _search_snippets(query=query, k=limit, policy_ids=policy_ids)
             elif fallback_to_global:
                 snippets = _search_snippets(query=query, k=limit)
         else:
             snippets = _search_snippets(query=query, k=limit)
 
+        # 2) watsonx 토큰 예산 내로 컨텍스트 패킹
         context_block, _ = _fit_snippets_to_limit(
             snippets=snippets,
             user_query=query,
         )
+
+        # 3) 과거 대화 요약을 HISTORY로
+        history_summary = await summarize_prev_chats_for_context(prev_chats)
+
+        # 4) 프롬프트 구성: [HISTORY] → [RAG CONTEXT] → [CURRENT_QUESTION]
+        #    (충돌 시 최신 질문 우선 규칙을 system에 이미 명시)
         prompt = _rag_prompt(
-            user_query=query, context_block=context_block + (db_context or "")
+            user_query=query,
+            context_block=context_block + (db_context or ""),
+            history_summary=history_summary
         )
-        print("[RAG AUTO PROMPT END]\n" + prompt)
+
+        logger.info("\n[RAG AUTO PROMPT END]\n" + str(prompt))
+
+        # 5) 생성
         answer = await _wx_async(prompt)
-        print("[RAG AUTO ANSWER END]\n" + answer)
+        logger.info("\n[RAG AUTO ANSWER END]\n" + str(answer))
+
         if (answer or "").strip():
-            # 외부(OpenAI) 폴리싱이 컨텍스트로 사용할 수 있게 명확한 헤더 부여
             return "[RAG AUTO ANSWER]\n" + answer
 
         # watsonx 실패 시: 원문 컨텍스트라도 반환
@@ -417,7 +433,7 @@ async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: s
 
                 target_type = entities.get("product_type")
                 recs = []
-                print(candidates)
+                logger.info("\n[candidates]\n"+str(candidates))
                 for cand in candidates:
                     # 적합도(Fit)
                     fit = 0.0
@@ -720,7 +736,7 @@ def extract_json_array(text: str) -> List[Any]:
 
 async def extract_coverage_batched(base_names: List[str], chunks: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     name_groups = _pack_name_groups(base_names)
-    print(name_groups)
+    logger.info("\n[name_groups]"+str(name_groups))
     out: List[Dict[str, Any]] = []
     for names in name_groups:
         for b in chunks:
@@ -757,6 +773,34 @@ async def extract_premiums_batched(chunks: List[List[Dict[str, Any]]]) -> List[D
                     except: pass
         out.extend([x for x in arr if isinstance(x, dict)])
     return out
+
+async def summarize_prev_chats_for_context(prev_chats: Optional[List[str]], max_chars: int = 1200) -> str:
+    """
+    과거 대화를 1~2문장으로 요약해 HISTORY 블록에 넣는다.
+    watsonx 호출 실패 시, 최근 몇 줄을 추출식으로 합쳐 짧게 자른다.
+    """
+    if not prev_chats:
+        return ""
+    raw = "\n".join(str(x).strip() for x in prev_chats if x).strip()
+    raw = raw[:max_chars]
+
+    prompt = (
+        "다음 대화 로그를 1~2문장으로 요약하세요. 핵심 의도/주제만 간결히:\n"
+        "<<LOG>>\n" + raw + "\n<<END>>\n"
+        "출력: 한국어 1~2문장. 불릿/코드/머리글 금지."
+    )
+    try:
+        txt = await _wx_async(prompt)
+        out = (txt or "").strip()
+        # 과도한 포맷 방지
+        out = out.replace("\n", " ").strip()
+        # 너무 길면 컷
+        return out[:400]
+    except Exception:
+        # 폴백: 최근 3줄만 압축
+        lines = [l for l in raw.splitlines() if l.strip()]
+        tail = " ".join(lines[-3:]) if lines else ""
+        return tail[:300]
 
 # ----------------------- REDUCE (서버 병합) -----------------------
 
@@ -817,7 +861,7 @@ def reduce_coverage(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 cur[f] = it[f]
     # 리스트 반환(정렬은 coverage_order → name)
     # print(lambda d: (d.get("coverage_order") or 9999, str(d.get("name") or "")))
-    print(agg.values())
+    logger.info("\n[agg.values]\n"+str(agg.values()))
     return sorted(agg.values(), key=lambda d: (d.get("coverage_order") or 9999, str(d.get("name") or "")))
 
 def reduce_premiums(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

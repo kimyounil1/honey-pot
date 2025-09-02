@@ -419,7 +419,7 @@ export default function ChatPage() {
   };
 
   const handlePolicyAnalysis = (p: { policy_id: string }) => {
-    const message = `내 보험 분석을 요청합니다: ${p.policy_id}`
+    const message = `${p.policy_id}의 보험약관 분석을 요청합니다.`
     pendingUploadRef.current = {
         product_id: p.policy_id,
         disease_code: null,
