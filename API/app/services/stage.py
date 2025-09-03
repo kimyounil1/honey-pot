@@ -13,7 +13,7 @@ from app.crud import chatCRUD, nonBenefitCRUD
 logger = logging.getLogger(__name__)
 
 
-async def _classify(user_text: str, prev_chats: Optional[List[str]]) -> Tuple[Mode, Dict[str, Any], bool, str]:
+async def _classify(user_text: str, prev_chats: Optional[List[str]]) -> Tuple[Mode, Dict[str, Any], bool, str, str]:
     # decision = classify_with_llm(user_text, attachment_ids or [])
     """Run the classification LLM in a thread so it doesn't block the event loop."""
     decision = await asyncio.to_thread(classify_with_llm, user_text, prev_chats or [])
@@ -21,7 +21,8 @@ async def _classify(user_text: str, prev_chats: Optional[List[str]]) -> Tuple[Mo
     entities: Dict[str, Any] = decision.entities or {}
     use_retrieval: bool = bool(getattr(decision, "use_retrieval", False))
     text = decision.text
-    return mode, entities, use_retrieval, text
+    ctx = decision.ctx
+    return mode, entities, use_retrieval, text, ctx
 
 
 async def prepare_llm_request(
@@ -43,7 +44,7 @@ async def prepare_llm_request(
     except Exception as e:
         await chatCRUD.update_message_state(db, chat_id, "failed")
         raise
-    mode, entities, use_retrieval, text = await _classify(text, pre_chat)
+    mode, entities, use_retrieval, text, ctx = await _classify(text, pre_chat)
     logger.info(
         "[STAGE] classify -> mode=%s | text='%s'",
         getattr(mode, "name", str(mode)),
@@ -81,7 +82,6 @@ async def prepare_llm_request(
             mode=mode,
             user_id=str(user_id),
             query=text,
-            # prev_chats=pre_chat,
             product_id=product_id,
             limit=20,
             db_context=db_block,
@@ -113,8 +113,7 @@ async def prepare_llm_request(
     except Exception as e:
         await chatCRUD.update_message_state(db, chat_id, "failed")
         raise
-    context = "\n\n".join([s for s in [db_block, rag_block, benefit_ctx] if s]).strip()
-    print(context)
+    context = "\n\n".join([s for s in [db_block, rag_block, benefit_ctx, ctx] if s]).strip()
     messages = build_messages(mode=mode, user_text=text, context=context)
 
     logger.info(

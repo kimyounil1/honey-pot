@@ -1,9 +1,10 @@
 # app/services/common.py
 from __future__ import annotations
 import os
+import re
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # ================== 모드 정의 (RAG는 '스위치'로만 운용) ==================
 class Mode(str, Enum):
@@ -29,6 +30,8 @@ class FlowDecision:
     retrieval_suggestion: RetrievalSuggestion = RetrievalSuggestion.AUTO
     use_retrieval: bool = False
     text: str = ""
+    # 분류 단계에서 생성된 보조 컨텍스트(히스토리 요약 등)를 문자열로 전달
+    ctx: str = ""
 
 # ================== RAG 스위치 정책 ==================
 _FORCE_OFF = ["근거 없이", "출처 없이", "인용 빼고", "대략만", "대충만"]
@@ -66,6 +69,30 @@ def decide_use_retrieval(
 
     return False
 
+# ================== 엔티티 힌트 빌더 ==================
+def _build_entity_hints(prev_chats: List[str], max_lookback: int = 10) -> Dict[str, List[str]]:
+    texts = [str(x) for x in (prev_chats or [])][-max_lookback:]
+
+    insurers: set[str] = set()
+    products: set[str] = set()
+
+    INSURER_PAT = r"(롯데|한화|삼성|현대|KB|메리츠|흥국|DB|교보|라이나|농협|동양|우체국)"
+    for t in texts:
+        for m in re.findall(INSURER_PAT, t):
+            insurers.add(m)
+
+        # ‘보험/실손/무배당/간편…’ 포함 라인을 후보 상품으로 수집
+        for line in t.splitlines():
+            if ("보험" in line) or ("실손" in line):
+                s = line.strip()
+                if 3 <= len(s) <= 80:
+                    products.add(s)
+
+    return {
+        "insurers": sorted(insurers),
+        "products": sorted(products),
+    }
+
 # ================== 분류 + 스위치 ==================
 def _map_mode(s: str) -> Mode:
     """
@@ -94,48 +121,64 @@ def _map_suggestion(s: str) -> RetrievalSuggestion:
         return RetrievalSuggestion.AUTO
 
 def decide_flow_with_llm(user_text: str, prev_chats: List[str]) -> FlowDecision:
-    """
-    내부에서 경량 분류 LLM을 호출하고 서버 정책으로 RAG 스위치를 최종 결정.
-    """
-    # 지연 임포트로 순환 참조 방지
     from .llm_gateway import run_classifier_llm
- 
-    # 기존코드:
-    # meta = {"count": len(prev_chats or [])}
+
     meta = dict()
     for i in range(len(prev_chats)):
-        # 유저 이전채팅
-        if i % 2 == 0:
-            role = "user" + str(i%2)
-        # 어시스턴트 이전채팅
-        else:
-            role = "assistant" + str((i-1)%2)
+        role = "user" + str(i%2) if i % 2 == 0 else "assistant" + str((i-1)%2)
         meta[role] = prev_chats[i]
-    
+
+    # (신규) 힌트 생성
+    entity_hints = _build_entity_hints(prev_chats, max_lookback=10)
+
     try:
-        raw = run_classifier_llm(user_text=user_text, chat_meta=meta)
+        raw = run_classifier_llm(
+            user_text=user_text,
+            chat_meta=meta,
+            entity_hints=entity_hints,
+        )
     except Exception:
         return FlowDecision(
             flow=Mode.GENERAL, confidence=0.0, reasons="classifier_error",
             tags=[], entities={}, retrieval_suggestion=RetrievalSuggestion.AUTO, use_retrieval=False
         )
 
+    # 이하 기존 로직 동일...
     mode  = _map_mode(raw.get("primary_flow", "GENERAL"))
     conf  = float(raw.get("confidence", 0.0))
     ents  = raw.get("entities", {}) or {}
     sug   = _map_suggestion(raw.get("retrieval_suggestion", "auto"))
     rsn   = (raw.get("reasons") or "")[:500]
     tags  = raw.get("tags", []) or []
-    text  = raw.get("text", "") 
+    text  = raw.get("text", "")
+    # 분류 보조 컨텍스트 가공(문자열로 안전 변환)
+    try:
+        import json
+        _ctx = raw.get("__ctx") or {}
+        if isinstance(_ctx, dict):
+            hist = (_ctx.get("history_summary") or "").strip()
+            sticky = _ctx.get("sticky_entities") or {}
+            probe = _ctx.get("current_entities_probed") or {}
+            compact = _ctx.get("decision_compact") or {}
 
-    use_ret = decide_use_retrieval(
-        text=text,
-        # n_attachments=meta["count"],
-        mode=mode,
-        suggestion=sug
-    )
+            parts = []
+            if hist:
+                parts.append("[HISTORY]\n" + hist)
+            if sticky:
+                parts.append("[STICKY ENTITIES]\n" + json.dumps(sticky, ensure_ascii=False))
+            if probe:
+                parts.append("[ENTITIES PROBED]\n" + json.dumps(probe, ensure_ascii=False))
+            if compact:
+                parts.append("[DECISION]\n" + json.dumps(compact, ensure_ascii=False))
+            ctx = "\n\n".join(parts)
+        else:
+            ctx = str(_ctx)
+    except Exception:
+        ctx = ""
+
+    use_ret = decide_use_retrieval(text=text, mode=mode, suggestion=sug)
 
     return FlowDecision(
         flow=mode, confidence=conf, reasons=rsn, tags=tags,
-        entities=ents, retrieval_suggestion=sug, use_retrieval=use_ret, text=text
+        entities=ents, retrieval_suggestion=sug, use_retrieval=use_ret, text=text, ctx=ctx,
     )

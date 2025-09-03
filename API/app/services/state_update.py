@@ -1,6 +1,7 @@
 # /API/app/services/state_update.py
 import logging
-from typing import Optional, List
+import json
+from typing import Optional, List, Dict, Any
 
 from app.services import stage, llm_gateway
 from app.schemas import chatSchema
@@ -8,6 +9,38 @@ from app.crud import chatCRUD
 from app.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
+body_logger = logging.getLogger("debug.body")  # 전용 로거
+
+# ============== 로그용 포매터 ==============
+def _format_messages_for_log(messages: List[Dict[str, Any]],
+                             max_lines_per_msg: int = 80,
+                             max_chars_per_msg: int = 8000) -> str:
+    """
+    - role은 그대로
+    - content가 str이면 이스케이프 없이 원문 출력(줄바꿈 유지)
+    - content가 dict/list면 json pretty
+    - 너무 길면 줄/문자 단위로 절단
+    """
+    blocks = []
+    for i, m in enumerate(messages, 1):
+        role = m.get("role", "?")
+        content = m.get("content", "")
+
+        if isinstance(content, (dict, list)):
+            pretty = json.dumps(content, ensure_ascii=False, indent=2, default=str)
+        else:
+            # 문자열은 줄바꿈 유지 + 길이 제한
+            s = str(content)
+            if len(s) > max_chars_per_msg:
+                s = s[:max_chars_per_msg] + "\n…(truncated by chars)…"
+            lines = s.splitlines()
+            if len(lines) > max_lines_per_msg:
+                lines = lines[:max_lines_per_msg] + ["…(truncated by lines)…"]
+            pretty = "\n".join(lines)
+
+        blocks.append(f"[{i}] role={role}\n{pretty}")
+
+    return "\n\n".join(blocks)
 
 async def process_assistant_message(
     chat_id: int,
@@ -97,7 +130,9 @@ async def process_assistant_message(
 
             # LLM 호출
             messages = prep["messages"]
-            logger.info("[BG] Calling LLM. mode=%s, messages_len=%d", mode_str, len(messages))
+            body_logger.info("[BG] Calling LLM. mode=%s, messages_len=%d", mode_str, len(messages))
+            # LLM에 입력되는 값 로깅
+            body_logger.info("##### [FINAL LLM INPUT] #####\n%s", _format_messages_for_log(messages))
             answer = await llm_gateway.call_llm(messages)
 
             # content/state 업데이트

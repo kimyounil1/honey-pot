@@ -6,38 +6,24 @@ import logging
 from typing import Any, Dict, List, Optional
 from openai import OpenAI
 
+# ===== Models (env configurable) =====
+SUMMARIZER_MODEL = os.getenv("SUMMARIZER_MODEL", "gpt-4o-mini")
 CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "gpt-4o-mini")
 ANSWERER_MODEL   = os.getenv("ANSWERER_MODEL",   "gpt-4o")
 
 _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 body_logger = logging.getLogger("debug.body")  # 전용 로거
 
-# def _to_transcript(chat_meta: Optional[Dict[str, Any]], user_text: str) -> str:
-#     """
-#     chat_meta(이전 대화)와 현재 user_text를 사람이 읽는 대화 로그 문자열로 직렬화.
-#     chat_meta가 dict/str/None 어떤 형태로 와도 최대한 안전하게 처리.
-#     """
-#     lines: List[str] = []
-#     if isinstance(chat_meta, dict):
-#         # 키를 정렬해 재현성 확보 (user0, assistant0, user1... 같은 형태를 기대)
-#         for k in sorted(chat_meta.keys(), key=lambda x: str(x)):
-#             role = "user" if "user" in str(k).lower() else ("assistant" if "assistant" in str(k).lower() else "note")
-#             lines.append(f"{role}: {chat_meta[k]}")
-#     elif isinstance(chat_meta, list):
-#         # ["user: ...", "assistant: ..."] 같은 경우
-#         for item in chat_meta:
-#             lines.append(str(item))
-#     elif isinstance(chat_meta, str):
-#         lines.append(chat_meta.strip())
+# ========== Helpers ==========
+def _supports_json_object(model_name: str) -> bool:
+    """
+    일부 모델은 response_format={'type':'json_object'}가 불안정/미지원일 수 있어 가드.
+    운영 중 검증된 모델명 키워드 기준(필요 시 업데이트/환경변수 플래그로 제어).
+    """
+    model_name = (model_name or "").lower()
+    # 알려진 계열: gpt-5, gpt-4o, o3
+    return any(k in model_name for k in ["gpt-5", "gpt-4o", "o3"])
 
-#     # 현재 사용자 입력을 마지막에 추가
-#     if user_text:
-#         lines.append(f"user: {user_text.strip()}")
-
-#     # 비어있으면 현재 입력만 반환
-#     if not lines:
-#         return f"user: {user_text.strip()}"
-#     return "\n".join(lines)
 
 # 1) 간단 요약기 (mini 모델로 1~2문장 요약)
 def summarize_history_for_context(chat_meta: Optional[Dict[str, Any] | List[str] | str], max_chars: int = 1200) -> str:
@@ -64,23 +50,25 @@ def summarize_history_for_context(chat_meta: Optional[Dict[str, Any] | List[str]
         return ""
 
     prompt = (
-        "다음 대화 로그를 1~2문장으로 요약하세요. 핵심 의도/주제만 보존하고 사족은 제거하세요.\n"
-        "출력은 한국어 1~2문장, 메타/불릿/코드블록 금지.\n\n"
+        "다음 대화 로그를 2~3문장으로 요약하세요. 핵심 의도/주제만 보존하고 사족은 제거하세요.\n"
+        "출력은 한국어 2~3문장, 메타/불릿/코드블록 금지.\n\n"
         f"<<LOG>>\n{raw}\n<<END>>"
     )
     try:
         resp = _client.chat.completions.create(
-            model=CLASSIFIER_MODEL,  # mini 사용
+            model=SUMMARIZER_MODEL,
             messages=[
-                {"role": "system", "content": "대화 요약가. 반드시 1~2문장으로만."},
+                {"role": "system", "content": "대화 요약가. 반드시 2~3문장으로만."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
         )
         return (resp.choices[0].message.content or "").strip()
-    except Exception:
+    except Exception as e:
+        body_logger.info("\n############ [SUMMARY ERROR] ############\n" + repr(e))
         return ""
-    
+
+
 def extract_sticky_entities(chat_meta: Optional[Dict[str, Any] | List[str] | str],
                             entity_hints: Optional[Dict[str, List[str]]] = None,
                             max_lookback: int = 8) -> Dict[str, Optional[str]]:
@@ -136,11 +124,47 @@ def extract_sticky_entities(chat_meta: Optional[Dict[str, Any] | List[str] | str
     product = list(products)[0] if len(products) == 1 else None
     return {"insurer": insurer, "product": product}
 
+def _extract_current_entities(user_text: str,
+                              entity_hints: Optional[Dict[str, List[str]]] = None) -> Dict[str, Optional[str]]:
+    """최신 질문에서의 명시 후보(단일이면 확정). 다수면 None."""
+    import re
+    txt = (user_text or "").strip()
+    if not txt:
+        return {"insurer": None, "product": None}
 
-# 2) 분류기 호출: 메시지 구성 방식 변경
+    ins = set()
+    prod = set()
+
+    # 힌트가 있으면 먼저 결정적 매칭
+    if entity_hints:
+        for name in (entity_hints.get("insurers") or []):
+            if name and name.lower() in txt.lower():
+                ins.add(name)
+        for name in (entity_hints.get("products") or []):
+            if name and name.lower() in txt.lower():
+                prod.add(name)
+
+    # 보조 휴리스틱
+    if not ins:
+        for m in re.findall(r"(롯데|한화|삼성|현대|KB|메리츠|흥국|DB|교보|라이나|농협|동양|우체국)", txt):
+            ins.add(m)
+    if not prod:
+        for line in txt.splitlines():
+            if ("보험" in line) or ("실손" in line):
+                s = line.strip()
+                if 3 <= len(s) <= 80:
+                    prod.add(s)
+
+    return {
+        "insurer": list(ins)[0] if len(ins) == 1 else None,
+        "product": list(prod)[0] if len(prod) == 1 else None,
+    }
+
+# 2) 분류기 호출: 메시지 구성 방식
 def run_classifier_llm(user_text: str,
                        chat_meta: Optional[Dict[str, Any]] = None,
-                       entity_hints: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
+                       entity_hints: Optional[Dict[str, List[str]]] = None
+    ) -> Dict[str, Any]:
     """
     최신 발화 우선 + Sticky 엔티티 상속.
     """
@@ -169,51 +193,109 @@ def run_classifier_llm(user_text: str,
         "\"retrieval_suggestion\":\"on|off|auto\","
         "\"reasons\":\"최소 근거\","
         "\"tags\":[\"키워드\"],"
-        "\"text\":\"HISTORY와 CURRENT_QUESTION을 합쳐 1~2문장 요약(보험사/상품이 있으면 반드시 포함)\""
+        "\"text\":\"CURRENT_QUESTION을 1~2문장으로 요약(사용자가 질의한 보험사/상품이 있으면 반드시 포함)\""
         "}\n"
         "반드시 유효한 JSON만 출력하고 여분 텍스트/코드블록을 금지합니다.\n"
     )
 
     # 기존 요약 유지
     hist_summary = summarize_history_for_context(chat_meta)
-    history_block = f"[HISTORY]\n{hist_summary}" if hist_summary else "[HISTORY]\n(없음)"
-
-    # 🔧 NEW: Sticky 엔티티 추출
+    # sticky 추출 시 힌트 활용
     sticky = extract_sticky_entities(chat_meta, entity_hints=entity_hints, max_lookback=8)
-    sticky_block = "[STICKY_ENTITIES]\n" \
-                   f"insurer: {sticky.get('insurer') or '(없음)'}\n" \
-                   f"product: {sticky.get('product') or '(없음)'}"
+    # current에서도 단일 후보를 사전 추출 → LLM이 판단하기 쉽게 노출
+    current_entities = _extract_current_entities(user_text, entity_hints=entity_hints)
 
-    current = f"[CURRENT_QUESTION]\n{(user_text or '').strip()}"
+    history_block = f"[HISTORY]\n{hist_summary}" if hist_summary else "[HISTORY]\n(없음)"
+    sticky_block  = "[STICKY_ENTITIES]\n" \
+                    f"insurer: {sticky.get('insurer') or '(없음)'}\n" \
+                    f"product: {sticky.get('product') or '(없음)'}"
+    hints_block   = "[HINTS]\n" \
+                    f"insurers: {', '.join(entity_hints.get('insurers', [])) if entity_hints else '(없음)'}\n" \
+                    f"products: {', '.join(entity_hints.get('products', [])) if entity_hints else '(없음)'}"
+    current_block = "[CURRENT_QUESTION]\n" + (user_text or "").strip()
+    current_probe = "[CURRENT_ENTITIES_PROBED]\n" \
+                    f"insurer: {current_entities.get('insurer') or '(없음)'}\n" \
+                    f"product: {current_entities.get('product') or '(없음)'}"
 
     messages = [
-        {"role": "system", "content": SYSTEM_RULES},
-        {"role": "assistant", "content": history_block},     # 참고용
-        {"role": "assistant", "content": sticky_block},      # 🔧 상속용 구조화 컨텍스트
-        {"role": "user", "content": current},                # 최신 질문(최우선)
+        {"role": "system",    "content": SYSTEM_RULES},
+        {"role": "assistant", "content": history_block},
+        {"role": "assistant", "content": sticky_block},
+        {"role": "assistant", "content": hints_block},       # << HINTS 주입
+        {"role": "assistant", "content": current_probe},     # << CURRENT 엔티티 힌트
+        {"role": "user",      "content": current_block},
     ]
 
-    # (로깅은 기존 body_logger 로직 재사용)
+    # (로깅) 요청 페이로드
     try:
         payload_str = "\n############ [LLM DEBUG] ############\n"
-        payload_str += json.dumps(messages, ensure_ascii=False, default=str)
+        payload_str += json.dumps(messages, ensure_ascii=False, default=str, indent=2)
     except Exception:
         payload_str = "\n############ [LLM DEBUG] ############\n" + str(messages)
     body_logger.info(payload_str)
 
-    resp = _client.chat.completions.create(
-        model=CLASSIFIER_MODEL,
-        messages=messages,
-        temperature=0.0,
-        response_format={"type": "json_object"}
-    )
-    content = (resp.choices[0].message.content or "").strip()
-    body_logger.info("\n############ [LLM DEBUG2] ############\n" + content)
+    # OpenAI 호출 (예외 가드 + response_format 옵션화)
+    try:
+        kwargs = {
+            "model": CLASSIFIER_MODEL,
+            "messages": messages,
+            "temperature": 0.0,
+        }
+        if _supports_json_object(CLASSIFIER_MODEL):
+            kwargs["response_format"] = {"type": "json_object"}
+
+        if "gpt-5-mini" not in CLASSIFIER_MODEL.lower():
+            kwargs["temperature"] = 0.0
+
+        resp = _client.chat.completions.create(**kwargs)
+        content = (resp.choices[0].message.content or "").strip()
+        # 파싱, 보정 전 1차 LLM 답변 로깅
+        try:
+            raw_for_log = content
+
+            # ```json ... ``` 같은 코드펜스 제거 (여기서도 파싱 전에 전처리)
+            if raw_for_log.startswith("```"):
+                import re as _re
+                m = _re.search(r"\{.*\}", raw_for_log, _re.S)
+                raw_for_log = m.group(0) if m else raw_for_log
+
+            try:
+                parsed = json.loads(raw_for_log)          # 문자열 → 파이썬 객체
+                pretty = json.dumps(parsed, ensure_ascii=False, indent=2)
+            except Exception:
+                # JSON이 아니면 원문 그대로
+                pretty = raw_for_log
+            body_logger.info("############ [LLM DEBUG 2] ############\n%s", pretty)
+        except Exception as e:
+            body_logger.info("############ [LLM DEBUG 2 ERROR] ############\n%s", repr(e))
+
+    except Exception as e:
+        body_logger.info("\n############ [LLM ERROR] ############\n" + repr(e))
+        return {
+            "primary_flow": "GENERAL",
+            "confidence": 0.2,
+            "entities": {
+                "insurer": None, "product": None, "version": None,
+                "topic": None, "icd10_candidate": None,
+                "product_type": None, "focus_topics": [],
+            },
+            "retrieval_suggestion": "auto",
+            "reasons": "openai_error",
+            "tags": [],
+            "text": user_text or ""
+        }
+
+    # JSON 파싱 (방어적)
+    raw = content
+    if raw.startswith("```"):
+        import re as _re
+        m = _re.search(r"\{.*\}", raw, _re.S)
+        raw = m.group(0) if m else raw
 
     try:
-        result = json.loads(content)
+        result = json.loads(raw)
     except Exception:
-        # 실패 시 안전값
+        body_logger.info("\n############ [LLM PARSE ERROR] ############\n" + raw)
         return {
             "primary_flow": "GENERAL",
             "confidence": 0.3,
@@ -232,18 +314,32 @@ def run_classifier_llm(user_text: str,
     entities = result.get("entities", {}) or {}
     insurer = (entities.get("insurer") or "").strip() or None
     product = (entities.get("product") or "").strip() or None
-    topic   = (entities.get("topic") or "").strip() or None
 
-    if (not insurer or not product) and sticky:
-        s_ins = sticky.get("insurer")
-        s_prod = sticky.get("product")
-    # 현재가 비어있고 sticky에 단일 후보가 있으면 상속
-    if not insurer and s_ins:
-        entities["insurer"] = s_ins
-        insurer = s_ins
-    if not product and s_prod:
-        entities["product"] = s_prod
-        product = s_prod
+    # 1) 현재 단일 후보 우선
+    if not insurer and current_entities.get("insurer"):
+        entities["insurer"] = current_entities["insurer"]
+        insurer = entities["insurer"]
+    if not product and current_entities.get("product"):
+        entities["product"]  = current_entities["product"]
+        product = entities["product"]
+
+    # 2) sticky 상속(단일 후보)
+    if not insurer and sticky.get("insurer"):
+        entities["insurer"] = sticky["insurer"]
+        insurer = entities["insurer"]
+    if not product and sticky.get("product"):
+        entities["product"] = sticky["product"]
+        product = entities["product"]
+
+    # 3) 힌트에 후보가 1개뿐이라면 최후 보정(드물게)
+    if entity_hints:
+        hins = entity_hints.get("insurers") or []
+        hpro = entity_hints.get("products") or []
+        if not insurer and len(hins) == 1:
+            entities["insurer"] = hins[0]; insurer = hins[0]
+        if not product and len(hpro) == 1:
+            entities["product"] = hpro[0]; product = hpro[0]
+
     result["entities"] = entities
 
     # (A) 금액 질문 판별(정규식/키워드)
@@ -269,7 +365,7 @@ def run_classifier_llm(user_text: str,
     if result.get("primary_flow") == "TERMS" and (insurer or product):
         result["retrieval_suggestion"] = "on"
 
-    # (D) 요약 text에 엔티티가 빠지면 보완(프롬프트가 보장해도 가끔 빠짐)
+    # (D) 요약 text에 엔티티가 빠지면 보완
     summary = (result.get("text") or "").strip()
     if (insurer or product) and summary:
         if insurer and insurer not in summary:
@@ -287,6 +383,26 @@ def run_classifier_llm(user_text: str,
     result["tags"] = list(dict.fromkeys(tags))  # 중복 제거
     # ===== 보정 끝 =====
 
+    result["__ctx"] = {
+        "history_summary": hist_summary,          # str | ""
+        "sticky_entities": sticky,                 # {"insurer":..,"product":..}
+        "current_entities_probed": current_entities,
+        "decision_compact": {                     # Answerer가 한눈에 보도록 요약
+            "primary_flow": result.get("primary_flow"),
+            "entities": result.get("entities", {}),
+            "retrieval_suggestion": result.get("retrieval_suggestion", "auto"),
+        },
+    }
+
+    # 최종 결과 로그
+    try:
+        body_logger.info(
+            "############ [CLASSIFIER RESULT] ############\n%s",
+            json.dumps(result, ensure_ascii=False, default=str, indent=2),
+        )
+    except Exception as e:
+        body_logger.info("############ [CLASSIFIER RESULT LOG ERROR] ############\n%s", repr(e))
+
     return result
 
 # ================== 최종 Answerer LLM (chat.py 호환) ==================
@@ -294,9 +410,11 @@ def run_llm(messages: List[Dict[str, str]]) -> str:
     resp = _client.chat.completions.create(
         model=ANSWERER_MODEL,
         messages=messages,
-        temperature=0.2,
+        # 원래 0.2였는데, 이걸 조정해야되나?
+        temperature=0.3,
     )
     return (resp.choices[0].message.content or "").strip()
+
 
 async def call_llm(messages: List[Dict[str, str]]) -> str:
     return await asyncio.to_thread(run_llm, messages)

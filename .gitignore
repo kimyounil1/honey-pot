@@ -58,6 +58,7 @@ TODO.txt
 
 # === Setting files ===
 .env
+AGENTS.md
 
 # === Test files ===
 test-compose.yamlAPI/.env
