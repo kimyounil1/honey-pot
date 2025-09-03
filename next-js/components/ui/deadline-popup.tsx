@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 type Notification = {
   id: number;
@@ -42,10 +43,10 @@ export default function DeadlinePopup() {
         ]);
         if (!mounted) return;
 
-        // ✅ 읽음 여부와 무관하게 그대로 사용 (백엔드에서 이미 mute만 필터)
+        // 백엔드에서 mute만 필터된다고 가정 → 읽음 여부 무시하고 그대로 사용
         setNotis(ns);
         setTimelines(ts);
-        setOpen(ns.length > 0); // ✅ unread 조건 제거
+        setOpen(ns.length > 0);
       } catch {
         // 로그인 전/알림 없음 → 무시
       } finally {
@@ -58,6 +59,7 @@ export default function DeadlinePopup() {
   }, []);
 
   const relatedIds = useMemo(() => new Set(notis.map((n) => n.timeline_id)), [notis]);
+  const idsParam = useMemo(() => Array.from(relatedIds).join(","), [relatedIds]);
 
   const totalAmount = useMemo(() => {
     return timelines
@@ -66,23 +68,22 @@ export default function DeadlinePopup() {
   }, [relatedIds, timelines]);
 
   const earliestDeadline = useMemo(() => {
-    return timelines
+    const arr = timelines
       .filter((t) => relatedIds.has(t.id))
       .map((t) => t.deadline_date)
-      .sort()[0];
+      .filter(Boolean)
+      .sort((a, b) => +new Date(a) - +new Date(b));
+    return arr[0];
   }, [relatedIds, timelines]);
 
   if (loading || !open || notis.length === 0) return null;
 
-  // 닫기: 읽음 처리 여부는 선택.
-  // 요구사항: 읽어도 로그인 시 다시 떠야 하므로 굳이 mark_read 안 해도 됨.
   const onCloseOnly = async () => {
     setOpen(false);
-    // 필요하면 읽음 처리 유지:
+    // 필요시 읽음 처리:
     // await Promise.all(notis.map((n) => fetch(`/api/notifications/${n.id}/read`, { method: "POST" })));
   };
 
-  // 다시 보지 않기: 관련 타임라인 모두 mute
   const onNeverShow = async () => {
     try {
       await Promise.all(
@@ -102,7 +103,7 @@ export default function DeadlinePopup() {
           <div className="text-base md:text-lg font-semibold">
             환급 예상 합계{" "}
             <span className="text-emerald-600">
-              {totalAmount.toLocaleString()} 원
+              {Number(totalAmount || 0).toLocaleString()} 원
             </span>
             {earliestDeadline ? (
               <>
@@ -119,12 +120,17 @@ export default function DeadlinePopup() {
         </div>
 
         <div className="flex gap-2">
-          <a
-            href="/chat"
+          {/* ✅ 환급 페이지로 대상 ids를 함께 전달 */}
+          <Link
+            href={{
+              pathname: "/refund",
+              query: { focus: "imminent", ids: idsParam || undefined },
+            }}
             className="inline-flex items-center rounded-xl bg-amber-500 text-white px-4 py-2 text-sm font-medium shadow hover:bg-amber-600"
           >
             지금 확인하기
-          </a>
+          </Link>
+
           <button
             onClick={onNeverShow}
             className="inline-flex items-center rounded-xl border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"

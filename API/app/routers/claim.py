@@ -3,6 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.crud import claimCRUD
 from app.schemas import claimSchema
+from typing import List
+from app.auth import deps
+from app.schemas import claimSchema, userSchema
 
 router = APIRouter(prefix="/claims", tags=["claims"])
 
@@ -16,3 +19,11 @@ async def get_claim(claim_id: int, db: AsyncSession = Depends(get_db)):
     if not claim:
         raise HTTPException(status_code=404, detail="Claim not found")
     return claim
+
+
+@router.get("/my", response_model=List[claimSchema.ClaimRead])
+async def list_my_claims(
+    db: AsyncSession = Depends(get_db),
+    current_user: userSchema.UserRead = Depends(deps.get_current_user),
+):
+    return await claimCRUD.list_by_user(db, current_user.user_id)

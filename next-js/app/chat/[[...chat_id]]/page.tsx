@@ -589,8 +589,8 @@ export default function ChatPage() {
             <FileText className="mr-3 h-4 w-4 text-blue-600" />
             내 보험 약관 분석
           </Button>
-          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowRefundFinderModal(true)}> 
-            <TrendingUp className="mr-3 h-4 w-4 text-green-600" />
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => router.push("/refund")}>
+          <TrendingUp className="mr-3 h-4 w-4 text-green-600" />
             환급금 찾기
           </Button>
           <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowRecommendationModal(true)}> 
