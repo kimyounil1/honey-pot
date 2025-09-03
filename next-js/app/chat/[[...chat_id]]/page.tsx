@@ -577,6 +577,10 @@ export default function ChatPage() {
         </div>
 
         <nav className="px-4 space-y-2">
+          {/* 심사 페이지로 이동 */}
+          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => router.push('/assessment')}>
+            <FileText className="mr-3 h-4 w-4 text-orange-600" /> 보험 심사
+          </Button>
           <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowInsuranceCheckModal(true)}> 
             <User className="mr-3 h-4 w-4 text-gray-800" />
             나의 보험 확인하기
@@ -585,7 +589,7 @@ export default function ChatPage() {
             <User className="mr-3 h-4 w-4 text-gray-800" />
             나의 보험 추가하기
           </Button>
-          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowPolicyAnalysisModal(true)}> 
+          <Button variant="ghost" className="w-full justify-start text-gray-800 hidden" onClick={() => setShowPolicyAnalysisModal(true)}> 
             <FileText className="mr-3 h-4 w-4 text-blue-600" />
             내 보험 약관 분석
           </Button>
@@ -593,33 +597,23 @@ export default function ChatPage() {
           <TrendingUp className="mr-3 h-4 w-4 text-green-600" />
             환급금 찾기
           </Button>
-          <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowRecommendationModal(true)}> 
+          <Button variant="ghost" className="w-full justify-start text-gray-800 hidden" onClick={() => setShowRecommendationModal(true)}> 
             <Shield className="mr-3 h-4 w-4 text-purple-600" />
             보험 추천
           </Button>
-          <Button 
-            variant="ghost" 
-            className="w-full justify-start"
-            onClick={() => setShowChatHistory(!showChatHistory)}
-          >
-            <MessageCircle className="mr-3 h-4 w-4" />
-            채팅 기록
-            {showChatHistory ? (
-              <ChevronDown className="ml-auto h-4 w-4" />
-            ) : (
-              <ChevronRight className="ml-auto h-4 w-4" />
-            )}
-          </Button>
+          {/* 채팅 기록 고정 노출 (assessment 스타일) */}
+          <div className="w-full flex items-center text-gray-800 font-semibold text-sm mt-2">
+            <MessageCircle className="mr-3 h-4 w-4" /> 채팅 기록
+          </div>
         </nav>
 
-        {showChatHistory && (
           <div className="px-4 mt-6 flex-1 flex-col hidden lg:flex">
-            <div className="relative mb-4">
+            <div className="relative mb-4 hidden">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input placeholder="채팅 검색" className="pl-10" />
             </div>
             
-            <h4 className="text-sm font-medium text-gray-500 mb-3">최근 채팅</h4>
+            <h4 className="text-sm font-medium text-gray-500 mb-3 hidden">최근 채팅</h4>
             <ScrollArea className="flex-1">
               <div className="space-y-2">
                 {chatSessions.map((chat) => (
@@ -650,7 +644,6 @@ export default function ChatPage() {
               </div>
             </ScrollArea>
           </div>
-        )}
 
         <div className="p-4 border-t mt-auto">
           <Button 
