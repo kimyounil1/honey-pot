@@ -120,7 +120,7 @@ def _map_suggestion(s: str) -> RetrievalSuggestion:
     except Exception:
         return RetrievalSuggestion.AUTO
 
-def decide_flow_with_llm(user_text: str, prev_chats: List[str]) -> FlowDecision:
+def decide_flow_with_llm(user_text: str, prev_chats: List[str], disease_code: Optional[str], product_id: Optional[str]) -> FlowDecision:
     from .llm_gateway import run_classifier_llm
 
     meta = dict()
@@ -136,6 +136,8 @@ def decide_flow_with_llm(user_text: str, prev_chats: List[str]) -> FlowDecision:
             user_text=user_text,
             chat_meta=meta,
             entity_hints=entity_hints,
+            disease_code=disease_code,
+            product_id=product_id,
         )
     except Exception:
         return FlowDecision(

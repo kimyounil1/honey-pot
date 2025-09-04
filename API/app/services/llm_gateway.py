@@ -70,46 +70,48 @@ def summarize_history_for_context(chat_meta: Optional[Dict[str, Any] | List[str]
 
 
 
-def _extract_current_entities(user_text: str,
-                              entity_hints: Optional[Dict[str, List[str]]] = None) -> Dict[str, Optional[str]]:
-    """최신 질문에서의 명시 후보(단일이면 확정). 다수면 None."""
-    import re
-    txt = (user_text or "").strip()
-    if not txt:
-        return {"insurer": None, "product": None}
+# def _extract_current_entities(user_text: str,
+#                               entity_hints: Optional[Dict[str, List[str]]] = None) -> Dict[str, Optional[str]]:
+#     """최신 질문에서의 명시 후보(단일이면 확정). 다수면 None."""
+#     import re
+#     txt = (user_text or "").strip()
+#     if not txt:
+#         return {"insurer": None, "product": None}
 
-    ins = set()
-    prod = set()
+#     ins = set()
+#     prod = set()
 
-    # 힌트가 있으면 먼저 결정적 매칭
-    if entity_hints:
-        for name in (entity_hints.get("insurers") or []):
-            if name and name.lower() in txt.lower():
-                ins.add(name)
-        for name in (entity_hints.get("products") or []):
-            if name and name.lower() in txt.lower():
-                prod.add(name)
+#     # 힌트가 있으면 먼저 결정적 매칭
+#     if entity_hints:
+#         for name in (entity_hints.get("insurers") or []):
+#             if name and name.lower() in txt.lower():
+#                 ins.add(name)
+#         for name in (entity_hints.get("products") or []):
+#             if name and name.lower() in txt.lower():
+#                 prod.add(name)
 
-    # 보조 휴리스틱
-    if not ins:
-        for m in re.findall(r"(롯데|한화|삼성|현대|KB|메리츠|흥국|DB|교보|라이나|농협|동양|우체국)", txt):
-            ins.add(m)
-    if not prod:
-        for line in txt.splitlines():
-            if ("보험" in line) or ("실손" in line):
-                s = line.strip()
-                if 3 <= len(s) <= 80:
-                    prod.add(s)
+#     # 보조 휴리스틱
+#     if not ins:
+#         for m in re.findall(r"(롯데|한화|삼성|현대|KB|메리츠|흥국|DB|교보|라이나|농협|동양|우체국)", txt):
+#             ins.add(m)
+#     if not prod:
+#         for line in txt.splitlines():
+#             if ("보험" in line) or ("실손" in line):
+#                 s = line.strip()
+#                 if 3 <= len(s) <= 80:
+#                     prod.add(s)
 
-    return {
-        "insurer": list(ins)[0] if len(ins) == 1 else None,
-        "product": list(prod)[0] if len(prod) == 1 else None,
-    }
+#     return {
+#         "insurer": list(ins)[0] if len(ins) == 1 else None,
+#         "product": list(prod)[0] if len(prod) == 1 else None,
+#     }
 
 # 2) 분류기 호출: 메시지 구성 방식
 def run_classifier_llm(user_text: str,
                        chat_meta: Optional[Dict[str, Any]] = None,
-                       entity_hints: Optional[Dict[str, List[str]]] = None
+                       entity_hints: Optional[Dict[str, List[str]]] = None,
+                       disease_code: Optional[str] = None,
+                       product_id: Optional[str] = None,
     ) -> Dict[str, Any]:
     """
     최신 발화 우선. Sticky 엔티티 로직은 제거됨.
@@ -124,7 +126,8 @@ def run_classifier_llm(user_text: str,
         "   - 그 외 환급금 절차/조건/서류/가능 여부/약관 조항 등은 TERMS\n"
         "4) CURRENT_QUESTION에 특정 보험사/상품명이 언급되면, entities.insurer/entities.product를 반드시 채우고,\n"
         "   primary_flow가 TERMS일 때 retrieval_suggestion은 반드시 'on'으로 설정합니다.\n"
-        "5) 엔티티는 NULL을 남발하지 말고, CURRENT_QUESTION에서 추출 가능한 것은 반드시 채웁니다.\n"
+        "5) CURRENT_QUESTION에 특정 보험사/상품명이 언급되지 않았다면, entities.insurer/entities.product는 HINTS를 참고해 채웁니다.\n"
+        "6) 엔티티는 NULL을 남발하지 말고, CURRENT_QUESTION에서 추출 가능한 것은 반드시 채웁니다.\n"
         "스키마:\n"
         "{"
         "\"primary_flow\":\"TERMS|REFUND|RECOMMEND|GENERAL|FALLBACK\","
@@ -148,6 +151,8 @@ def run_classifier_llm(user_text: str,
     # current_entities = _extract_current_entities(user_text, entity_hints=entity_hints)
 
     history_block = f"[HISTORY]\n{hist_summary}" if hist_summary else "[HISTORY]\n(없음)"
+
+    hint_block = f"[HINTS]\nproduct_id: {product_id or ''}\ndisease_code: {disease_code or ''}"
     # hints_block   = "[HINTS]\n" \
     #                 f"insurers: {', '.join(entity_hints.get('insurers', [])) if entity_hints else '(없음)'}\n" \
     #                 f"products: {', '.join(entity_hints.get('products', [])) if entity_hints else '(없음)'}"
@@ -159,7 +164,7 @@ def run_classifier_llm(user_text: str,
     messages = [
         {"role": "system",    "content": SYSTEM_RULES},
         {"role": "assistant", "content": history_block},
-        # {"role": "assistant", "content": hints_block},       # << HINTS 주입
+        {"role": "assistant", "content": hint_block},       # << HINTS 주입
         # {"role": "assistant", "content": current_probe},     # << CURRENT 엔티티 힌트
         {"role": "user",      "content": current_block},
     ]

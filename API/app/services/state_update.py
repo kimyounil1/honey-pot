@@ -75,7 +75,7 @@ async def process_assistant_message(
 
             mode = prep["mode"]
             mode_str = getattr(mode, "name", str(mode))  # e.g. "REFUND"
-            attachments_used = prep.get("attachments_used", [])
+            # attachments_used = prep.get("attachments_used", [])
             static_answer = prep.get("static_answer") or ""
 
 

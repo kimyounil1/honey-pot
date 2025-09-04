@@ -5,8 +5,8 @@ from typing import List, Dict, Optional
 from app.services.common import Mode, decide_flow_with_llm
 from app.services import terms_analysis, refund_calc, recommend, general_question, fallback
 
-def classify_with_llm(user_text: str, prev_chats: Optional[List[str]] = None):
-    decision = decide_flow_with_llm(user_text, prev_chats or [])
+def classify_with_llm(user_text: str, prev_chats: Optional[List[str]], disease_code: Optional[str], product_id: Optional[str]):
+    decision = decide_flow_with_llm(user_text, prev_chats or [], disease_code, product_id)
     print(f"[STARTEND] classify -> {decision.flow} | text='{(user_text or '')[:80]}'")
     return decision
 

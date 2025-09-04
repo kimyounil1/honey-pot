@@ -13,10 +13,10 @@ from app.crud import chatCRUD, nonBenefitCRUD
 logger = logging.getLogger(__name__)
 
 
-async def _classify(user_text: str, prev_chats: Optional[List[str]]) -> Tuple[Mode, Dict[str, Any], bool, str, str]:
+async def _classify(user_text: str, prev_chats: Optional[List[str]], disease_code: Optional[str], product_id: Optional[str]) -> Tuple[Mode, Dict[str, Any], bool, str, str]:
     # decision = classify_with_llm(user_text, attachment_ids or [])
     """Run the classification LLM in a thread so it doesn't block the event loop."""
-    decision = await asyncio.to_thread(classify_with_llm, user_text, prev_chats or [])
+    decision = await asyncio.to_thread(classify_with_llm, user_text, prev_chats or [], disease_code, product_id)
     mode: Mode = decision.flow
     entities: Dict[str, Any] = decision.entities or {}
     use_retrieval: bool = bool(getattr(decision, "use_retrieval", False))
@@ -44,7 +44,7 @@ async def prepare_llm_request(
     except Exception as e:
         await chatCRUD.update_message_state(db, chat_id, "failed")
         raise
-    mode, entities, use_retrieval, text, ctx = await _classify(text, pre_chat)
+    mode, entities, use_retrieval, text, ctx = await _classify(text, pre_chat, disease_code, product_id)
     logger.info(
         "[STAGE] classify -> mode=%s | text='%s'",
         getattr(mode, "name", str(mode)),
