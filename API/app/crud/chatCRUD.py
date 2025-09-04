@@ -19,6 +19,7 @@ async def create_message(db: AsyncSession, message_in: chatSchema.Message) -> ch
         content = message_in.content,
         type = message_in.type,
         state = message_in.state,
+        attached_policy_id = message_in.attached_policy_id,
         created_at = datetime.datetime.now(),
     )
     db.add(message)
@@ -178,6 +179,18 @@ async def get_last_assistant_message(db: AsyncSession, chat_id: int):
     )
     return result.scalars().first()
 
+# 현 chat의 attached_policy_id를 가져오기
+async def get_attached_policy_id(db: AsyncSession, chat_id: int):
+    result = await db.execute(
+        select(chatModel.Message.attached_policy_id)
+        .where(
+            chatModel.Message.chat_id == chat_id,
+            chatModel.Message.role == "assistant",
+        )
+        .order_by(chatModel.Message.created_at.desc(), chatModel.Message.id.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
 
 
 # ========================================

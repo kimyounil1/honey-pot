@@ -19,6 +19,7 @@ from app.auth import deps
 from app.database import get_db, AsyncSessionLocal
 from app.services.state_update import process_assistant_message
 
+logger = logging.getLogger(__name__)
 body_logger = logging.getLogger("debug.body")  # 전용 로거
 router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(deps.get_current_user)])
 
@@ -26,7 +27,7 @@ class AskBody(BaseModel):
     # user_id: int
     role: str = "user"
     text: str
-    prev_chats: Optional[List[str]] = None  # 업로드된 file_id 배열
+    prev_chats: Optional[List[str]] = None
     chat_id: Optional[int] = None
     disease_code: Optional[str] = None
     product_id: Optional[str] = None
@@ -127,7 +128,7 @@ async def ask(
         except Exception:
             # 혹시라도 직렬화 실패 시 문자열 fallback
             payload_str = str(body)
-        body_logger.info(payload_str+'\n')
+        body_logger.info('\n##### [INPUT] #####\n%s',payload_str)
 
         # 1) 채팅 시작 시 create_chat
         if not body.chat_id:
@@ -141,6 +142,21 @@ async def ask(
             chat_id = newChat.id
         else:
             chat_id = body.chat_id
+        
+        # 메세지 생성 전 attached_policy_id 여부 확인
+        attached_policy_id = await chatCRUD.get_attached_policy_id(db, chat_id)
+        effective_policy_id = attached_policy_id if attached_policy_id is not None else body.product_id
+        # 디버그: 입력/저장된 policy id 해상 결과 로깅
+        try:
+            body_logger.info(
+                "[POLICY RESOLVE] chat_id=%s incoming.product_id=%s last_assistant.attached_policy_id=%s -> effective=%s",
+                chat_id,
+                getattr(body, "product_id", None),
+                attached_policy_id,
+                effective_policy_id,
+            )
+        except Exception:
+            pass
 
         # 2) user 메시지 즉시 저장
         await chatCRUD.create_message(
@@ -151,6 +167,7 @@ async def ask(
                 content=body.text,
                 type="general",
                 state="done",
+                attached_policy_id=effective_policy_id,
             ),
         )
 
@@ -163,9 +180,10 @@ async def ask(
                 content="",
                 type="",
                 state="commencing",
+                attached_policy_id=effective_policy_id,
             )
         )
-        await db.commit()
+        await db.commit()        
 
         # 4) 백그라운드 태스크로 LLM 처리 예약
         background_tasks.add_task(
@@ -175,7 +193,7 @@ async def ask(
             body.text,
             body.prev_chats,
             body.disease_code,
-            body.product_id,
+            effective_policy_id,
         )
         # 5) 즉시 응답 반환
         return {

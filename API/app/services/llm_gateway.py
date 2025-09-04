@@ -69,60 +69,6 @@ def summarize_history_for_context(chat_meta: Optional[Dict[str, Any] | List[str]
         return ""
 
 
-def extract_sticky_entities(chat_meta: Optional[Dict[str, Any] | List[str] | str],
-                            entity_hints: Optional[Dict[str, List[str]]] = None,
-                            max_lookback: int = 8) -> Dict[str, Optional[str]]:
-    """
-    최근 대화(최대 max_lookback 메시지 범위)에서 보험사/상품 단일 후보를 뽑아 Sticky로 사용.
-    - entity_hints: {"insurers": [...], "products": [...]} 주면 정확도↑ (선택)
-    - 충돌(후보가 2개 이상)이면 None 반환 → 상속 중단(보수적)
-    """
-    texts: List[str] = []
-    if isinstance(chat_meta, dict):
-        # 키 정렬 후 최근 메시지 몇 개만
-        pairs = [(str(k), str(v)) for k, v in chat_meta.items()]
-        pairs.sort(key=lambda kv: kv[0])
-        texts = [v for _, v in pairs][-max_lookback:]
-    elif isinstance(chat_meta, list):
-        texts = [str(x) for x in chat_meta][-max_lookback:]
-    elif isinstance(chat_meta, str):
-        texts = [chat_meta.strip()]
-
-    blob = "\n".join(texts).strip()
-    if not blob:
-        return {"insurer": None, "product": None}
-
-    insurers = set()
-    products = set()
-
-    # 힌트 사전에 기반한 정합 추출 (정확·결정적)
-    if entity_hints:
-        for name in (entity_hints.get("insurers") or []):
-            if name and name.lower() in blob.lower():
-                insurers.add(name)
-        for name in (entity_hints.get("products") or []):
-            if name and name.lower() in blob.lower():
-                products.add(name)
-
-    # 힌트가 없거나 못찾은 경우: 간단한 휴리스틱(괄호/보험/실손 등 패턴)
-    import re
-    if not insurers:
-        # 예: 롯데, 한화, 삼성, 현대 등 고유명사 패턴을 추가로 넣을 수 있음
-        m = re.findall(r"(롯데|한화|삼성|현대|KB|메리츠|흥국|DB|교보|라이나|농협|동양|우체국)", blob)
-        insurers.update(m)
-    if not products:
-        # 예: '보험', '실손', '무배당', '간편', '의료비' 등 포함된 상품명 라인 추출
-        for line in blob.splitlines():
-            if ("보험" in line) or ("실손" in line):
-                # 너무 긴 줄은 제외
-                cand = line.strip()
-                if 3 <= len(cand) <= 80:
-                    products.add(cand)
-
-    # 충돌 시 보수적으로 배제
-    insurer = list(insurers)[0] if len(insurers) == 1 else None
-    product = list(products)[0] if len(products) == 1 else None
-    return {"insurer": insurer, "product": product}
 
 def _extract_current_entities(user_text: str,
                               entity_hints: Optional[Dict[str, List[str]]] = None) -> Dict[str, Optional[str]]:
@@ -166,7 +112,7 @@ def run_classifier_llm(user_text: str,
                        entity_hints: Optional[Dict[str, List[str]]] = None
     ) -> Dict[str, Any]:
     """
-    최신 발화 우선 + Sticky 엔티티 상속.
+    최신 발화 우선. Sticky 엔티티 로직은 제거됨.
     """
     SYSTEM_RULES = (
         "당신은 보험 도메인 대화 라우터입니다. 오직 JSON만 출력하세요.\n"
@@ -178,9 +124,7 @@ def run_classifier_llm(user_text: str,
         "   - 그 외 환급금 절차/조건/서류/가능 여부/약관 조항 등은 TERMS\n"
         "4) CURRENT_QUESTION에 특정 보험사/상품명이 언급되면, entities.insurer/entities.product를 반드시 채우고,\n"
         "   primary_flow가 TERMS일 때 retrieval_suggestion은 반드시 'on'으로 설정합니다.\n"
-        "5) CURRENT_QUESTION에 보험사/상품명이 없더라도, [STICKY_ENTITIES]에 단일 후보로 제공된 값이 있으면 해당 값을 상속하여 채웁니다.\n"
-        "   단, 후보가 다수/모호하면 상속하지 마세요.\n"
-        "6) 엔티티는 NULL을 남발하지 말고, CURRENT_QUESTION 또는 STICKY에서 추출 가능한 것은 반드시 채웁니다.\n"
+        "5) 엔티티는 NULL을 남발하지 말고, CURRENT_QUESTION에서 추출 가능한 것은 반드시 채웁니다.\n"
         "스키마:\n"
         "{"
         "\"primary_flow\":\"TERMS|REFUND|RECOMMEND|GENERAL|FALLBACK\","
@@ -200,29 +144,23 @@ def run_classifier_llm(user_text: str,
 
     # 기존 요약 유지
     hist_summary = summarize_history_for_context(chat_meta)
-    # sticky 추출 시 힌트 활용
-    sticky = extract_sticky_entities(chat_meta, entity_hints=entity_hints, max_lookback=8)
     # current에서도 단일 후보를 사전 추출 → LLM이 판단하기 쉽게 노출
-    current_entities = _extract_current_entities(user_text, entity_hints=entity_hints)
+    # current_entities = _extract_current_entities(user_text, entity_hints=entity_hints)
 
     history_block = f"[HISTORY]\n{hist_summary}" if hist_summary else "[HISTORY]\n(없음)"
-    sticky_block  = "[STICKY_ENTITIES]\n" \
-                    f"insurer: {sticky.get('insurer') or '(없음)'}\n" \
-                    f"product: {sticky.get('product') or '(없음)'}"
-    hints_block   = "[HINTS]\n" \
-                    f"insurers: {', '.join(entity_hints.get('insurers', [])) if entity_hints else '(없음)'}\n" \
-                    f"products: {', '.join(entity_hints.get('products', [])) if entity_hints else '(없음)'}"
+    # hints_block   = "[HINTS]\n" \
+    #                 f"insurers: {', '.join(entity_hints.get('insurers', [])) if entity_hints else '(없음)'}\n" \
+    #                 f"products: {', '.join(entity_hints.get('products', [])) if entity_hints else '(없음)'}"
     current_block = "[CURRENT_QUESTION]\n" + (user_text or "").strip()
-    current_probe = "[CURRENT_ENTITIES_PROBED]\n" \
-                    f"insurer: {current_entities.get('insurer') or '(없음)'}\n" \
-                    f"product: {current_entities.get('product') or '(없음)'}"
+    # current_probe = "[CURRENT_ENTITIES_PROBED]\n" \
+    #                 f"insurer: {current_entities.get('insurer') or '(없음)'}\n" \
+    #                 f"product: {current_entities.get('product') or '(없음)'}"
 
     messages = [
         {"role": "system",    "content": SYSTEM_RULES},
         {"role": "assistant", "content": history_block},
-        {"role": "assistant", "content": sticky_block},
-        {"role": "assistant", "content": hints_block},       # << HINTS 주입
-        {"role": "assistant", "content": current_probe},     # << CURRENT 엔티티 힌트
+        # {"role": "assistant", "content": hints_block},       # << HINTS 주입
+        # {"role": "assistant", "content": current_probe},     # << CURRENT 엔티티 힌트
         {"role": "user",      "content": current_block},
     ]
 
@@ -315,21 +253,13 @@ def run_classifier_llm(user_text: str,
     insurer = (entities.get("insurer") or "").strip() or None
     product = (entities.get("product") or "").strip() or None
 
-    # 1) 현재 단일 후보 우선
-    if not insurer and current_entities.get("insurer"):
-        entities["insurer"] = current_entities["insurer"]
-        insurer = entities["insurer"]
-    if not product and current_entities.get("product"):
-        entities["product"]  = current_entities["product"]
-        product = entities["product"]
-
-    # 2) sticky 상속(단일 후보)
-    if not insurer and sticky.get("insurer"):
-        entities["insurer"] = sticky["insurer"]
-        insurer = entities["insurer"]
-    if not product and sticky.get("product"):
-        entities["product"] = sticky["product"]
-        product = entities["product"]
+    # # 1) 현재 단일 후보 우선
+    # if not insurer and current_entities.get("insurer"):
+    #     entities["insurer"] = current_entities["insurer"]
+    #     insurer = entities["insurer"]
+    # if not product and current_entities.get("product"):
+    #     entities["product"]  = current_entities["product"]
+    #     product = entities["product"]
 
     # 3) 힌트에 후보가 1개뿐이라면 최후 보정(드물게)
     if entity_hints:
@@ -385,8 +315,7 @@ def run_classifier_llm(user_text: str,
 
     result["__ctx"] = {
         "history_summary": hist_summary,          # str | ""
-        "sticky_entities": sticky,                 # {"insurer":..,"product":..}
-        "current_entities_probed": current_entities,
+        # "current_entities_probed": current_entities,
         "decision_compact": {                     # Answerer가 한눈에 보도록 요약
             "primary_flow": result.get("primary_flow"),
             "entities": result.get("entities", {}),

@@ -18,7 +18,13 @@ class Settings(BaseSettings):
     OPENSEARCH_PIPELINE: str # optional ingest pipeline for embeddings
     OPENSEARCH_MAX_CHARS: int # Titan v2 ~8k tokens ≈50k chars per chunk
     OPENSEARCH_REGION: str
-    OPENSEARCH_TIMEOUT: int = 40
+    OPENSEARCH_TIMEOUT: int = 180
+    # Optional tuning knobs (ingest/search)
+    OPENSEARCH_REQUEST_TIMEOUT: int = 300
+    OPENSEARCH_CLIENT_TIMEOUT: int = 300
+    OPENSEARCH_CHUNK_SIZE: int = 10
+    OPENSEARCH_MAX_RETRIES: int = 5
+    OPENSEARCH_MAX_CHUNK_BYTES: int = 1_000_000  # ~1 MB per bulk request
 
     #왓슨 Setting값
     WATSONX_API_KEY: str

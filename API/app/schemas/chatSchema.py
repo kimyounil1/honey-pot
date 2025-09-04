@@ -21,6 +21,7 @@ class Message(BaseModel):
     content: str
     type: str
     state: str
+    attached_policy_id: Optional[str] = None
 
     class Config:
         orm_mode = True

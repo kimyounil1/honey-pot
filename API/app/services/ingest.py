@@ -66,8 +66,8 @@ def _os_client() -> OpenSearch:
         use_ssl=True,
         verify_certs=True,
         connection_class=RequestsHttpConnection,
-        timeout=int(getattr(settings, "OPENSEARCH_CLIENT_TIMEOUT", 120)),  # read timeout
-        max_retries=int(getattr(settings, "OPENSEARCH_MAX_RETRIES", 3)),
+        timeout=int(getattr(settings, "OPENSEARCH_CLIENT_TIMEOUT", 300)),  # read timeout
+        max_retries=int(getattr(settings, "OPENSEARCH_MAX_RETRIES", 5)),
         retry_on_timeout=True,
         http_compress=True,
     )
@@ -91,11 +91,12 @@ async def ingest_policy(text: str, meta: Dict[str, Any]) -> int:
 
     # bulk 옵션(운영에서 조정 가능)
     request_timeout = int(
-        getattr(settings, "OPENSEARCH_TIMEOUT",  # 과거 호환
-                getattr(settings, "OPENSEARCH_REQUEST_TIMEOUT", 120))
+        getattr(settings, "OPENSEARCH_REQUEST_TIMEOUT",
+                getattr(settings, "OPENSEARCH_TIMEOUT", 180))
     )
-    chunk_size = int(getattr(settings, "OPENSEARCH_CHUNK_SIZE", 100))  # 작게: 타임아웃 방지
-    max_retries = int(getattr(settings, "OPENSEARCH_MAX_RETRIES", 3))
+    chunk_size = int(getattr(settings, "OPENSEARCH_CHUNK_SIZE", 10))  # smaller to reduce pipeline load
+    max_chunk_bytes = int(getattr(settings, "OPENSEARCH_MAX_CHUNK_BYTES", 1_000_000))
+    max_retries = int(getattr(settings, "OPENSEARCH_MAX_RETRIES", 5))
 
     client = _os_client()
 
@@ -122,6 +123,7 @@ async def ingest_policy(text: str, meta: Dict[str, Any]) -> int:
         actions,
         request_timeout=request_timeout,
         chunk_size=chunk_size,
+        max_chunk_bytes=max_chunk_bytes,
         max_retries=max_retries,
         raise_on_error=False,  # 오류는 errors 배열로 수집하고 판단/로깅
         **bulk_kwargs,
@@ -129,7 +131,10 @@ async def ingest_policy(text: str, meta: Dict[str, Any]) -> int:
 
     if errors:
         # 운영 가독성을 위해 일부만 로그. 필요하면 상세 저장으로 확장.
-        logger.error("OpenSearch bulk returned %d errors (first 3 shown): %s", len(errors), errors[:3])
+        logger.error(
+            "OpenSearch bulk returned %d errors (first 3 shown): %s",
+            len(errors), errors[:3]
+        )
         # 운영 정책상 에러가 하나라도 있으면 실패로 간주하려면 아래 한 줄을 활성화
         # raise RuntimeError(f"OpenSearch bulk had errors: {errors[:3]}")
 

@@ -130,7 +130,12 @@ async def process_assistant_message(
 
             # LLM 호출
             messages = prep["messages"]
-            body_logger.info("[BG] Calling LLM. mode=%s, messages_len=%d", mode_str, len(messages))
+            body_logger.info(
+                "[BG] Calling LLM. mode=%s, messages_len=%d, product_id(effective)=%s",
+                mode_str,
+                len(messages),
+                product_id,
+            )
             # LLM에 입력되는 값 로깅
             body_logger.info("##### [FINAL LLM INPUT] #####\n%s", _format_messages_for_log(messages))
             answer = await llm_gateway.call_llm(messages)

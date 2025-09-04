@@ -157,17 +157,14 @@ def decide_flow_with_llm(user_text: str, prev_chats: List[str]) -> FlowDecision:
         _ctx = raw.get("__ctx") or {}
         if isinstance(_ctx, dict):
             hist = (_ctx.get("history_summary") or "").strip()
-            sticky = _ctx.get("sticky_entities") or {}
-            probe = _ctx.get("current_entities_probed") or {}
+            # probe = _ctx.get("current_entities_probed") or {}
             compact = _ctx.get("decision_compact") or {}
 
             parts = []
             if hist:
                 parts.append("[HISTORY]\n" + hist)
-            if sticky:
-                parts.append("[STICKY ENTITIES]\n" + json.dumps(sticky, ensure_ascii=False))
-            if probe:
-                parts.append("[ENTITIES PROBED]\n" + json.dumps(probe, ensure_ascii=False))
+            # if probe:
+            #     parts.append("[ENTITIES PROBED]\n" + json.dumps(probe, ensure_ascii=False))
             if compact:
                 parts.append("[DECISION]\n" + json.dumps(compact, ensure_ascii=False))
             ctx = "\n\n".join(parts)

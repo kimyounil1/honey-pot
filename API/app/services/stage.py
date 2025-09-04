@@ -84,6 +84,7 @@ async def prepare_llm_request(
             query=text,
             product_id=product_id,
             limit=20,
+            fallback_to_global=True,
             db_context=db_block,
         )
         if os_block:

@@ -114,7 +114,9 @@ def _os_client() -> OpenSearch:
         use_ssl=True,
         verify_certs=True,
         connection_class=RequestsHttpConnection,
-        timeout=30,
+        timeout=20,
+        max_retries=2,
+        retry_on_timeout=True,
     )
 
 def _trim(s: str, n: int = 120) -> str:
@@ -342,7 +344,18 @@ async def retrieve(
         # 1) (검색은 최신 질문만 사용) 스니펫 수집
         snippets: List[Dict[str, Any]] = []
         if product_id:
-            snippets = _search_snippets(query=query, k=limit, policy_id=product_id)
+            try:
+                snippets = _search_snippets(query=query, k=limit, policy_id=product_id)
+            except Exception as e:
+                logger.error("[RAG][OS_ERROR] policy_id=%s search failed: %s", str(product_id), e)
+                # 옵션: 글로벌로 폴백 시도
+                if fallback_to_global:
+                    try:
+                        snippets = _search_snippets(query=query, k=limit)
+                    except Exception:
+                        snippets = []
+                else:
+                    snippets = []
         elif user_id:
             user_id_int = int(user_id) if user_id and user_id.isdigit() else 0
             policy_ids: List[str] = []
@@ -356,7 +369,17 @@ async def retrieve(
                     policy_ids = [pid for pid in res.scalars().all() if pid]
 
             if policy_ids:
-                snippets = _search_snippets(query=query, k=limit, policy_ids=policy_ids)
+                try:
+                    snippets = _search_snippets(query=query, k=limit, policy_ids=policy_ids)
+                except Exception as e:
+                    logger.error("[RAG][OS_ERROR] user policies search failed: %s", e)
+                    if fallback_to_global:
+                        try:
+                            snippets = _search_snippets(query=query, k=limit)
+                        except Exception:
+                            snippets = []
+                    else:
+                        snippets = []
             elif fallback_to_global:
                 snippets = _search_snippets(query=query, k=limit)
         else:
@@ -383,7 +406,7 @@ async def retrieve(
 
         # 5) 생성
         answer = await _wx_async(prompt)
-        logger.info("\n[RAG AUTO ANSWER END]\n" + str(answer))
+        logger.info("\n[RAG AUTO ANSWER END]\n%s", str(answer)[:500] + ("... (truncated)" if len(str(answer)) > 500 else ""))
 
         if (answer or "").strip():
             return "[RAG AUTO ANSWER]\n" + answer
