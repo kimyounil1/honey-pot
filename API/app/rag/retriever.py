@@ -402,7 +402,7 @@ async def retrieve(
             history_summary=history_summary
         )
 
-        logger.info("\n[RAG AUTO PROMPT END]\n" + str(prompt))
+        logger.info("\n[RAG AUTO PROMPT END]\n" + str(prompt)[:500]) + ("... (truncated)" if len(str(prompt)) > 500 else "")
 
         # 5) 생성
         answer = await _wx_async(prompt)
