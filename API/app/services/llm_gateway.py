@@ -258,6 +258,28 @@ def run_classifier_llm(user_text: str,
     insurer = (entities.get("insurer") or "").strip() or None
     product = (entities.get("product") or "").strip() or None
 
+    # (보강) 사용자가 특정 유형을 명시하면 product_type 힌트를 채움
+    try:
+        q_ko = (user_text or "")
+        # 간단 키워드 → 정규화된 product_type
+        pt_map = [
+            ("실손", "실손"), ("실비", "실손"), ("실손의료비", "실손"),
+            ("암보험", "암보험"), ("암", "암보험"),
+            ("운전자", "운전자"),
+            ("치아", "치아"),
+            ("종신", "종신"),
+            ("정기", "정기"),
+            ("어린이", "어린이"),
+            ("간병", "간병"),
+        ]
+        if not (entities.get("product_type") or "").strip():
+            for kw, norm in pt_map:
+                if kw in q_ko:
+                    entities["product_type"] = norm
+                    break
+    except Exception:
+        pass
+
     # # 1) 현재 단일 후보 우선
     # if not insurer and current_entities.get("insurer"):
     #     entities["insurer"] = current_entities["insurer"]

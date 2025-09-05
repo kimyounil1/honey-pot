@@ -441,6 +441,39 @@ async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: s
                 if not candidates:
                     return ""
 
+                # 사용자가 특정 유형을 요청하면 후보를 해당 유형으로 우선 제한
+                # 1) LLM 분류 엔티티 우선
+                target_type = (entities.get("product_type") or "").strip() if isinstance(entities, dict) else ""
+                # 2) 휴리스틱 보강: 사용자 문구에서 유형 키워드 감지
+                if not target_type:
+                    qtxt = (user_text or "")
+                    # 간단 키워드 매핑 (포괄적이되 과도한 오탐은 피함)
+                    if "실손" in qtxt or "실비" in qtxt or "실손의료비" in qtxt:
+                        target_type = "실손"
+                    elif "암보험" in qtxt or ("암" in qtxt and "보험" in qtxt):
+                        target_type = "암보험"
+                    elif "운전자" in qtxt:
+                        target_type = "운전자"
+                    elif "치아" in qtxt:
+                        target_type = "치아"
+                    elif "종신" in qtxt:
+                        target_type = "종신"
+                    elif "정기" in qtxt:
+                        target_type = "정기"
+                    elif "어린이" in qtxt:
+                        target_type = "어린이"
+                    elif "간병" in qtxt:
+                        target_type = "간병"
+
+                def _ptype_val(v):
+                    return (getattr(v, "value", v) or "")
+
+                # 후보를 요청 유형으로 필터링(있을 때만 적용; 없으면 전체 유지)
+                if target_type:
+                    typed = [c for c in candidates if _ptype_val(c.product_type) == target_type]
+                    if typed:
+                        candidates = typed
+
                 # 후보 보험료 평균 계산
                 prem_res = await session.execute(
                     select(
@@ -454,14 +487,14 @@ async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: s
                 min_prem = min(avg_prem.values()) if avg_prem else 0.0
                 max_prem = max(avg_prem.values()) if avg_prem else 0.0
 
-                target_type = entities.get("product_type")
                 recs = []
                 logger.info("\n[candidates]\n"+str(candidates))
                 for cand in candidates:
                     # 적합도(Fit)
                     fit = 0.0
-                    if target_type and cand.product_type == target_type:
-                        fit = 0.6
+                    if target_type and _ptype_val(cand.product_type) == target_type:
+                        # 요청 유형과 완전 일치 시 가산
+                        fit = 1.0
 
                     # 보장(Coverage)
                     cov_res = await session.execute(
