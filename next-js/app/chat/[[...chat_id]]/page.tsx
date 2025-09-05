@@ -591,7 +591,7 @@ export default function ChatPage() {
           </Button>
           <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => router.push("/refund")}>
           <TrendingUp className="mr-3 h-4 w-4 text-green-600" />
-            환급금 찾기
+            내 환급금 찾기
           </Button>
           <Button variant="ghost" className="w-full justify-start text-gray-800" onClick={() => setShowRecommendationModal(true)}> 
             <Shield className="mr-3 h-4 w-4 text-purple-600" />
