@@ -693,7 +693,7 @@ export default function ChatPage() {
 
         <div className="flex-1 overflow-y-auto p-4 bg-gradient-to-br from-orange-50 via-yellow-50 to-orange-100">
           {shouldShowWelcome ? (
-            <div className="max-w-4xl mx-auto space-y-6">
+            <div className="max-w-4xl mx-auto space-y-6" data-popup-anchor="main-card">
               {/* Welcome Card */}
               <Card className="text-center p-8 bg-white shadow-lg rounded-xl">
                 <CardContent className="flex flex-col items-center justify-center p-0">
@@ -763,7 +763,7 @@ export default function ChatPage() {
             </div>
           ) : (
             // Chat message display
-            <div className="max-w-3xl mx-auto space-y-4">
+            <div className="max-w-3xl mx-auto space-y-4" data-popup-anchor="main-card">
                 {displayedMessages.length === 0 && chatId && messageState !== "done" ? (
                     <div className="flex justify-start">
                     <div className="flex space-x-3 max-w-2xl">
