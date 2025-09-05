@@ -48,6 +48,7 @@ services:
       POSTGRES_DB: users 
     volumes: 
       - user-data:/var/lib/postgresql/data
+      - ./backup.sql:/docker-entrypoint-initdb.d/01-backup.sql:ro
     ports:
       - 5432:5432
     networks:
