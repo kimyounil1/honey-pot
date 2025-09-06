@@ -1,6 +1,7 @@
 # app/services/recommend.py
 from __future__ import annotations
 from typing import Dict, List, Optional
+import re
 import json
 
 SYSTEM_PROMPT = r"""
@@ -74,6 +75,43 @@ def build_messages(
 ) -> List[Dict[str, str]]:
     carriers = allowed_carriers or DEFAULT_ALLOWED_CARRIERS
     carriers_json = json.dumps(carriers, ensure_ascii=False, indent=2)
+
+    # 특수 케이스: DB에 요청한 보험 유형 후보가 전혀 없을 때
+    no_db = "[DB RECOMMENDATION_EMPTY]" in (context or "")
+    requested_type = None
+    if no_db:
+        m = re.search(r"(?:product_type|type)\s*:\s*([^\n\r]+)", context)
+        if m:
+            requested_type = m.group(1).strip()
+
+    if no_db:
+        guide = (
+            "📚 참고 자료(모델 전용: 데이터 없음)\n"
+            "- 내부 DB에 사용자가 요청한 유형의 후보가 없습니다.\n"
+            "- 기본 추천 목록을 생성하지 말고, '데이터 없음 안내'와 '다음 단계'만 간결히 제시하세요.\n"
+            "- 사용자가 원하면 다른 유형으로 전환/추가 정보를 요청하세요.\n\n"
+            f"요청_유형: {requested_type or '요청 유형 미상'}\n"
+            f"### PRIVATE_CONTEXT_START\n{context}\n### PRIVATE_CONTEXT_END\n"
+        )
+        prompt = (
+            "[모드: 보험 종류 추천 — 데이터 없음]\n"
+            "역할: 요청한 보험 유형에 대한 내부 DB 후보가 없음을 정중히 알리고, 다음 단계를 안내한다.\n\n"
+            "출력 형식(고정)\n"
+            f"{(requested_type or '요청하신 보험')}를 안내드릴게요 😊\n\n"
+            "📌 현재 상황\n"
+            f"- 내부 DB에 '{requested_type or '요청하신 보험'}' 유형 후보 데이터가 없어 구체 추천을 제공하기 어렵습니다.\n\n"
+            "💡 다음 단계\n"
+            "- 왼쪽 탭에서 ‘나의 보험 추가하기’를 설정해 주시면 보유 보장과 함께 다시 추천해 드려요.\n"
+            "- 다른 유형으로 요청하시거나, 예산/연령/우선 보장 등을 알려주시면 범용 가이드를 드릴게요.\n\n"
+            "📣 안내\n"
+            "- 실제 상품명/약관/버전은 시점에 따라 다를 수 있어 최종 청약 전 확인이 필요합니다.\n\n"
+            f"{guide}\n"
+            f"사용자 질문:\n{user_text}"
+        )
+        return [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user_text or ""},
+        ]
 
     if (context or "").strip():
         guide = (

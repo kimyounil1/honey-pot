@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import os
+import re
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional
@@ -68,43 +69,35 @@ def summarize_history_for_context(chat_meta: Optional[Dict[str, Any] | List[str]
         body_logger.info("\n############ [SUMMARY ERROR] ############\n" + repr(e))
         return ""
 
+# --- 부정 키워드 기반 타입 추출 유틸 ---
+def _detect_excluded_types_ko(q: str) -> list[str]:
+    q = (q or "")
+    pairs = [
+        ("실손", ["실손", "실비", "실손의료비"]),
+        ("암보험", ["암보험", r"\b암\b"]),
+        ("운전자", ["운전자"]),
+        ("치아", ["치아"]),
+        ("종신", ["종신"]),
+        ("정기", ["정기"]),
+        ("어린이", ["어린이"]),
+        ("간병", ["간병"]),
+    ]
+    neg_trigs = ["아닌", "제외", "빼고", "말고", "빼줘", "제껴", "말고 다른", "말곤", "빼서", "제외하고"]
+    out = set()
+    for norm, kws in pairs:
+        hit = any(re.search(k, q) for k in kws)
+        neg = any(t in q for t in neg_trigs)
+        # "암 말고", "암은 제외", "암은 아닌" 등 흔한 순서
+        if hit and neg:
+            out.add(norm)
+        # "암보험이 아닌 xxx 추천" 형태 보강
+        for k in kws:
+            if re.search(fr"{k}.*(아닌|말고|제외|빼고)", q):
+                out.add(norm)
+            if re.search(fr"(아닌|말고|제외|빼고).*\b{k}\b", q):
+                out.add(norm)
+    return list(out)
 
-
-# def _extract_current_entities(user_text: str,
-#                               entity_hints: Optional[Dict[str, List[str]]] = None) -> Dict[str, Optional[str]]:
-#     """최신 질문에서의 명시 후보(단일이면 확정). 다수면 None."""
-#     import re
-#     txt = (user_text or "").strip()
-#     if not txt:
-#         return {"insurer": None, "product": None}
-
-#     ins = set()
-#     prod = set()
-
-#     # 힌트가 있으면 먼저 결정적 매칭
-#     if entity_hints:
-#         for name in (entity_hints.get("insurers") or []):
-#             if name and name.lower() in txt.lower():
-#                 ins.add(name)
-#         for name in (entity_hints.get("products") or []):
-#             if name and name.lower() in txt.lower():
-#                 prod.add(name)
-
-#     # 보조 휴리스틱
-#     if not ins:
-#         for m in re.findall(r"(롯데|한화|삼성|현대|KB|메리츠|흥국|DB|교보|라이나|농협|동양|우체국)", txt):
-#             ins.add(m)
-#     if not prod:
-#         for line in txt.splitlines():
-#             if ("보험" in line) or ("실손" in line):
-#                 s = line.strip()
-#                 if 3 <= len(s) <= 80:
-#                     prod.add(s)
-
-#     return {
-#         "insurer": list(ins)[0] if len(ins) == 1 else None,
-#         "product": list(prod)[0] if len(prod) == 1 else None,
-#     }
 
 # 2) 분류기 호출: 메시지 구성 방식
 def run_classifier_llm(user_text: str,
@@ -135,7 +128,7 @@ def run_classifier_llm(user_text: str,
         "\"entities\":{"
         "  \"insurer\":null,\"product\":null,\"version\":null,"
         "  \"topic\":null,\"icd10_candidate\":null,"
-        "  \"product_type\":null,\"focus_topics\":[]"
+        "  \"product_type\":null,\"focus_topics\":[], \"exclude_product_types\":[]"
         "},"
         "\"retrieval_suggestion\":\"on|off|auto\","
         "\"reasons\":\"최소 근거\","
@@ -280,6 +273,17 @@ def run_classifier_llm(user_text: str,
     except Exception:
         pass
 
+    # 부정 타입 추출
+    try:
+        excluded = _detect_excluded_types_ko(user_text)
+        if excluded:
+            entities["exclude_product_types"] = excluded
+            # 충돌 시 product_type 비우기
+            if (entities.get("product_type") or "") in excluded:
+                entities["product_type"] = None
+    except Exception:
+        pass
+
     # # 1) 현재 단일 후보 우선
     # if not insurer and current_entities.get("insurer"):
     #     entities["insurer"] = current_entities["insurer"]
@@ -340,12 +344,24 @@ def run_classifier_llm(user_text: str,
     result["tags"] = list(dict.fromkeys(tags))  # 중복 제거
     # ===== 보정 끝 =====
 
+    # result["__ctx"] = {
+    #     "history_summary": hist_summary,          # str | ""
+    #     # "current_entities_probed": current_entities,
+    #     "decision_compact": {                     # Answerer가 한눈에 보도록 요약
+    #         "primary_flow": result.get("primary_flow"),
+    #         "entities": result.get("entities", {}),
+    #         "retrieval_suggestion": result.get("retrieval_suggestion", "auto"),
+    #     },
+    # }
+
     result["__ctx"] = {
-        "history_summary": hist_summary,          # str | ""
-        # "current_entities_probed": current_entities,
-        "decision_compact": {                     # Answerer가 한눈에 보도록 요약
+        "history_summary": hist_summary,
+        "decision_compact": {
             "primary_flow": result.get("primary_flow"),
-            "entities": result.get("entities", {}),
+            "entities": {
+                "product_type": entities.get("product_type"),
+                "exclude_product_types": entities.get("exclude_product_types", []),
+            },
             "retrieval_suggestion": result.get("retrieval_suggestion", "auto"),
         },
     }

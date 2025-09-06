@@ -417,21 +417,49 @@ async def retrieve(
     except Exception as e:
         logger.exception("retrieve failed: %s", e)
         return ""
-#
+
 from typing import Dict, Any
+
+# 부정감지기
+def _detect_excluded_types_ko(q: str) -> list[str]:
+    q = (q or "")
+    pairs = [
+        ("실손", ["실손", "실비", "실손의료비"]),
+        ("암보험", ["암보험", r"\b암\b"]),
+        ("운전자", ["운전자"]),
+        ("치아", ["치아"]),
+        ("종신", ["종신"]),
+        ("정기", ["정기"]),
+        ("어린이", ["어린이"]),
+        ("간병", ["간병"]),
+    ]
+    neg_trigs = ["아닌", "제외", "빼고", "말고", "말곤", "제외하고"]
+    out = set()
+    import re
+    for norm, kws in pairs:
+        hit = any(re.search(k, q) for k in kws)
+        neg = any(t in q for t in neg_trigs)
+        if hit and neg:
+            out.add(norm)
+        for k in kws:
+            if re.search(fr"{k}.*(아닌|말고|제외|빼고)", q):
+                out.add(norm)
+            if re.search(fr"(아닌|말고|제외|빼고).*\b{k}\b", q):
+                out.add(norm)
+    return list(out)
+
 
 async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: str, user_id: int) -> str:
     """DB lookups for recommendation or refund modes."""
     try:
         async with AsyncSessionLocal() as session:
             if mode == Mode.RECOMMEND:
+
                 # 보유 보험 조회
                 res = await session.execute(
                     select(InsurancePolicy).where(InsurancePolicy.user_id == user_id)
                 )
                 user_pols = res.scalars().all()
-                if not user_pols:
-                    return ""
 
                 # 추천 후보 (user_id=1)
                 res = await session.execute(
@@ -440,39 +468,59 @@ async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: s
                 candidates = res.scalars().all()
                 if not candidates:
                     return ""
+                
+                # (1) 1차 LLM이 넘긴 엔티티에서 제외 세트 확보
+                excluded = set()
+                if isinstance(entities, dict):
+                    for x in (entities.get("exclude_product_types") or []):
+                        if isinstance(x, str) and x.strip():
+                            excluded.add(x.strip())
+
+                # (2) 유저 문장으로도 보강(1차가 못 잡았더라도)
+                excluded |= set(_detect_excluded_types_ko(user_text))
 
                 # 사용자가 특정 유형을 요청하면 후보를 해당 유형으로 우선 제한
                 # 1) LLM 분류 엔티티 우선
                 target_type = (entities.get("product_type") or "").strip() if isinstance(entities, dict) else ""
+                # 제외목록과 충돌시 target_type을 확정하지 않음
+                if target_type and target_type in excluded:
+                    target_type = ""
+
                 # 2) 휴리스틱 보강: 사용자 문구에서 유형 키워드 감지
                 if not target_type:
                     qtxt = (user_text or "")
-                    # 간단 키워드 매핑 (포괄적이되 과도한 오탐은 피함)
                     if "실손" in qtxt or "실비" in qtxt or "실손의료비" in qtxt:
-                        target_type = "실손"
+                        if "실손" not in excluded: target_type = "실손"
                     elif "암보험" in qtxt or ("암" in qtxt and "보험" in qtxt):
-                        target_type = "암보험"
+                        if "암보험" not in excluded: target_type = "암보험"
                     elif "운전자" in qtxt:
-                        target_type = "운전자"
+                        if "운전자" not in excluded: target_type = "운전자"
                     elif "치아" in qtxt:
-                        target_type = "치아"
+                        if "치아" not in excluded: target_type = "치아"
                     elif "종신" in qtxt:
-                        target_type = "종신"
+                        if "종신" not in excluded: target_type = "종신"
                     elif "정기" in qtxt:
-                        target_type = "정기"
+                        if "정기" not in excluded: target_type = "정기"
                     elif "어린이" in qtxt:
-                        target_type = "어린이"
+                        if "어린이" not in excluded: target_type = "어린이"
                     elif "간병" in qtxt:
-                        target_type = "간병"
+                        if "간병" not in excluded: target_type = "간병"
 
                 def _ptype_val(v):
                     return (getattr(v, "value", v) or "")
+                
+                # 제외를 먼저 적용
+                if excluded:
+                    candidates = [c for c in candidates if _ptype_val(c.product_type) not in excluded]
 
                 # 후보를 요청 유형으로 필터링(있을 때만 적용; 없으면 전체 유지)
                 if target_type:
                     typed = [c for c in candidates if _ptype_val(c.product_type) == target_type]
                     if typed:
                         candidates = typed
+                    else:
+                        # 요청한 유형이 DB 후보에 아예 없는 경우: 명시적으로 빈 표식 반환
+                        return "[DB RECOMMENDATION_EMPTY]\nproduct_type: " + target_type
 
                 # 후보 보험료 평균 계산
                 prem_res = await session.execute(
