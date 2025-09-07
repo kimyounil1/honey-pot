@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+﻿from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from typing import List
@@ -6,7 +6,7 @@ import os
 import uuid
 from datetime import datetime
 
-from app.database import get_db
+from app.database import get_db, AsyncSessionLocal
 from app.auth import deps
 from app.schemas import userSchema
 from app.models import policyModel
@@ -14,6 +14,13 @@ from app.models.assessmentModel import Assessment
 from app.models.attachmentModel import AssessmentAttachment
 from app.models.assessmentMessageModel import AssessmentMessage
 from app.schemas import assessmentSchema
+from app.services.assessment_ingest import (
+    analyze_image_with_gpt4o,
+    analyze_text_with_gpt4o,
+    index_assessment_entries,
+    search_combined_context,
+)
+from app.services.llm_gateway import call_llm
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
 
@@ -31,6 +38,21 @@ async def _resolve_user_policy_by_id(db: AsyncSession, user_id: int, policy_db_i
     )
     res = await db.execute(stmt)
     return res.scalar_one_or_none()
+
+
+@router.get("/", response_model=List[assessmentSchema.AssessmentRead])
+async def list_assessments(
+    db: AsyncSession = Depends(get_db),
+    current_user: userSchema.UserRead = Depends(deps.get_current_user),
+):
+    stmt = (
+        select(Assessment)
+        .where(Assessment.user_id == current_user.user_id)
+        .order_by(Assessment.created_at.desc())
+    )
+    res = await db.execute(stmt)
+    items = res.scalars().all()
+    return items
 
 
 @router.post("/", response_model=assessmentSchema.AssessmentRead)
@@ -134,7 +156,7 @@ async def post_message(
     bot_msg = AssessmentMessage(
         assessment_id=assessment.id,
         role="assistant",
-        content="처리 중입니다...",
+        content="泥섎━ 以묒엯?덈떎...",
         state="building",
     )
     db.add(bot_msg)
@@ -146,8 +168,8 @@ async def post_message(
         import asyncio
         async def _run():
             # mark assistant message to done and update content
-            async with get_db() as s:  # type: ignore
-                session: AsyncSession = s  # type: ignore
+            async with AsyncSessionLocal() as session:
+                # type: ignore
                 stmt = (
                     select(AssessmentMessage)
                     .where((AssessmentMessage.assessment_id == assessment.id) & (AssessmentMessage.role == "assistant"))
@@ -157,7 +179,7 @@ async def post_message(
                 msg = r.scalars().first()
                 if msg:
                     msg.state = "done"
-                    msg.content = "요청하신 내용을 검토했습니다."
+                    msg.content = "?붿껌?섏떊 ?댁슜??寃?좏뻽?듬땲??"
                     await session.commit()
         try:
             asyncio.run(_run())
@@ -212,101 +234,16 @@ async def list_uploads(
     if not assessment:
         raise HTTPException(status_code=404, detail="Assessment not found")
 
-    a_stmt = (
+    stmt2 = (
         select(AssessmentAttachment)
         .where(AssessmentAttachment.assessment_id == assessment.id)
         .order_by(AssessmentAttachment.created_at.desc())
     )
-    a_res = await db.execute(a_stmt)
-    items = a_res.scalars().all()
-    return {
-        "uploads": [
-            assessmentSchema.UploadItem(
-                upload_id=i.upload_id,
-                filename=i.filename,
-                file_type=i.content_type,
-                file_size=i.file_size,
-                upload_status=i.upload_status,
-                ocr_status=i.ocr_status,
-                created_at=i.created_at,
-            )
-            for i in items
-        ]
-    }
-
-
-@router.post("/{assessment_id}/uploads", response_model=assessmentSchema.UploadList)
-async def upload_files(
-    assessment_id: int,
-    background: BackgroundTasks,
-    files: List[UploadFile] = File(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: userSchema.UserRead = Depends(deps.get_current_user),
-):
-    # resolve assessment
-    stmt = select(Assessment).where((Assessment.id == assessment_id) & (Assessment.user_id == current_user.user_id))
-    res = await db.execute(stmt)
-    assessment = res.scalar_one_or_none()
-    if not assessment:
-        raise HTTPException(status_code=404, detail="Assessment not found")
-
-    base_dir = _uploads_base()
-    target_dir = os.path.join(base_dir, str(assessment.id))
-    os.makedirs(target_dir, exist_ok=True)
-
-    created: list[AssessmentAttachment] = []
-    for f in files:
-        data = await f.read()
-        ext = os.path.splitext(f.filename or "")[1]
-        uid = f"upl_{uuid.uuid4().hex[:12]}"
-        stored_name = f"{uid}{ext}"
-        stored_path = os.path.join(target_dir, stored_name)
-        with open(stored_path, "wb") as out:
-            out.write(data)
-
-        att = AssessmentAttachment(
-            assessment_id=assessment.id,
-            upload_id=uid,
-            filename=f.filename or stored_name,
-            content_type=f.content_type,
-            file_size=len(data),
-            storage_path=stored_path,
-            upload_status="completed",
-            ocr_status="pending",
-        )
-        db.add(att)
-        created.append(att)
-
-    await db.commit()
-
-    # background OCR + index stub
-    def _ocr_and_index(paths: list[str]):
-        # TODO: integrate with paddle OCR service and OpenSearch index
-        # For now, mark records as completed.
-        import asyncio
-        async def _run():
-            async with get_db() as s:  # type: ignore
-                session: AsyncSession = s  # type: ignore
-                for att in created:
-                    stmt = (
-                        select(AssessmentAttachment)
-                        .where(AssessmentAttachment.upload_id == att.upload_id)
-                    )
-                    r = await session.execute(stmt)
-                    row = r.scalar_one_or_none()
-                    if row:
-                        row.ocr_status = "completed"
-                await session.commit()
-
-        try:
-            asyncio.run(_run())
-        except RuntimeError:
-            pass
-
-    background.add_task(_ocr_and_index, [a.storage_path for a in created])
-
-    return {
-        "uploads": [
+    r2 = await db.execute(stmt2)
+    atts = r2.scalars().all()
+    items: List[assessmentSchema.UploadItem] = []
+    for a in atts:
+        items.append(
             assessmentSchema.UploadItem(
                 upload_id=a.upload_id,
                 filename=a.filename,
@@ -316,9 +253,117 @@ async def upload_files(
                 ocr_status=a.ocr_status,
                 created_at=a.created_at,
             )
-            for a in created
-        ]
-    }
+        )
+    return assessmentSchema.UploadList(uploads=items)
+
+
+@router.post("/{assessment_id}/upload", response_model=assessmentSchema.UploadItem)
+async def upload_assessment_file(
+    assessment_id: int,
+    file: UploadFile = File(...),
+    background: BackgroundTasks = None,  # type: ignore
+    db: AsyncSession = Depends(get_db),
+    current_user: userSchema.UserRead = Depends(deps.get_current_user),
+):
+    # verify assessment ownership
+    stmt = select(Assessment).where((Assessment.id == assessment_id) & (Assessment.user_id == current_user.user_id))
+    res = await db.execute(stmt)
+    assessment = res.scalar_one_or_none()
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+
+    # storage path
+    base = _uploads_base()
+    room_dir = os.path.join(base, "assessment", str(assessment.id))
+    os.makedirs(room_dir, exist_ok=True)
+
+    upload_id = uuid.uuid4().hex[:12]
+    fname = file.filename or f"upload-{upload_id}"
+    content_type = file.content_type or "application/octet-stream"
+    target_path = os.path.join(room_dir, f"{upload_id}-{fname}")
+
+    raw = await file.read()
+    with open(target_path, "wb") as f:
+        f.write(raw)
+
+    att = AssessmentAttachment(
+        assessment_id=assessment.id,
+        upload_id=upload_id,
+        filename=fname,
+        content_type=content_type,
+        file_size=len(raw),
+        storage_path=target_path,
+        upload_status="completed",
+        ocr_status="pending",
+    )
+    db.add(att)
+    await db.commit()
+    await db.refresh(att)
+
+    def _bg_process():
+        import asyncio
+
+        async def _run():
+            try:
+                items: List[dict] = []
+                ctype = (content_type or "").lower()
+                if fname.lower().endswith(".png") or ctype.startswith("image/"):
+                    items = analyze_image_with_gpt4o(raw, mime=ctype or "image/png")
+                elif fname.lower().endswith(".txt") or ctype == "text/plain":
+                    try:
+                        txt = raw.decode("utf-8", errors="ignore")
+                    except Exception:
+                        txt = raw.decode("cp949", errors="ignore")
+                    items = analyze_text_with_gpt4o(txt)
+                else:
+                    items = []
+
+                meta = {
+                    "user_id": current_user.user_id,
+                    "assessment_id": assessment.id,
+                    "insurer": assessment.insurer,
+                    "policy_id": assessment.policy_id,
+                    "filename": fname,
+                    "upload_id": upload_id,
+                }
+                _ = index_assessment_entries(items, meta) if items else 0
+
+                async with AsyncSessionLocal() as session:
+                    stmt = select(AssessmentAttachment).where(AssessmentAttachment.upload_id == upload_id)
+                    r = await session.execute(stmt)
+                    row = r.scalar_one_or_none()
+                    if row:
+                        row.ocr_status = "completed"
+                    await session.commit()
+            except Exception:
+                try:
+                    async with AsyncSessionLocal() as session:
+                        stmt = select(AssessmentAttachment).where(AssessmentAttachment.upload_id == upload_id)
+                        r = await session.execute(stmt)
+                        row = r.scalar_one_or_none()
+                        if row:
+                            row.ocr_status = "failed"
+                        await session.commit()
+                except Exception:
+                    pass
+
+        try:
+            asyncio.run(_run())
+        except RuntimeError:
+            pass
+
+    if background:
+        background.add_task(_bg_process)
+
+    return assessmentSchema.UploadItem(
+        upload_id=att.upload_id,
+        filename=att.filename,
+        file_type=att.content_type,
+        file_size=att.file_size,
+        upload_status=att.upload_status,
+        ocr_status=att.ocr_status,
+        created_at=att.created_at,
+    )
 
 
 @router.delete("/{assessment_id}/uploads/{upload_id}")
@@ -368,3 +413,4 @@ async def list_assessments(
     res = await db.execute(stmt)
     rows = res.scalars().all()
     return rows
+

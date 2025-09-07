@@ -11,11 +11,11 @@ async function getAccessToken() {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export async function GET(_: Request, { params }: { params: { assessment_id: string } }) {
+export async function GET(_: Request, ctx: { params: Promise<{ assessment_id: string }> }) {
   try {
     const token = await getAccessToken();
     if (token instanceof NextResponse) return token;
-    const { assessment_id } = params;
+    const { assessment_id } = await ctx.params;
     const r = await fetch(`http://API:8000/assessments/${assessment_id}/messageState`, {
       headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` },
       cache: 'no-store',
@@ -26,4 +26,3 @@ export async function GET(_: Request, { params }: { params: { assessment_id: str
     return new NextResponse('Internal error', { status: 500 });
   }
 }
-
