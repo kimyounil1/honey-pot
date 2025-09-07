@@ -31,6 +31,7 @@ type UploadItem = {
 export default function AssessmentRoomPage() {
   const params = useParams()
   const assessmentId = Number((params as any)?.assessment_id)
+  const isDemo = assessmentId === 1
 
   // Sidebar data
   const [assessments, setAssessments] = useState<AssessmentItem[]>([])
@@ -81,11 +82,30 @@ export default function AssessmentRoomPage() {
 
   const fetchMessages = async () => {
     if (!assessmentId) return
+    if (isDemo) {
+      const now = new Date()
+      setMessages([
+        { id: 1, role: 'user', content: '자동차보험 보상 문의드립니다. 합의금이 적정한지 봐주세요.', timestamp: new Date(now.getTime() - 1000 * 60 * 22).toISOString() },
+        { id: 2, role: 'assistant', content: '첨부된 카톡 대화와 심사 내역서를 확인했어요. 초기 제시액에는 위자료와 휴업손해 일부가 반영되지 않았습니다. 몇 가지 보완 시 추가 수령 가능성이 있습니다.', timestamp: new Date(now.getTime() - 1000 * 60 * 20).toISOString() },
+        { id: 3, role: 'assistant', content: '예상 추가 수령 범위는 약 35만~60만원입니다. 세부 근거는 아래와 같아요:\n- 위자료: 경미 상해 기준 가이드 상향 여지\n- 교통비/치료비 누락분\n- 휴업손해: 소득 증빙 시 부분 반영 가능', timestamp: new Date(now.getTime() - 1000 * 60 * 18).toISOString() },
+        { id: 4, role: 'user', content: '그러면 뭐 어떻게 해야하나요?', timestamp: new Date(now.getTime() - 1000 * 60 * 16).toISOString() },
+        { id: 5, role: 'assistant', content: '진행 방법 안내드릴게요.\n\n요약 금액(가정):\n- 총 손해 추정액: 1,800,000원\n- 현재 제시액: 1,250,000원\n- 추가 수령 예상: 350,000~600,000원\n- 목표 합계: 1,600,000~1,850,000원\n\n다음 순서로 진행해 주세요:\n1) 치료비/약제비/교통비 영수증 재정리 후 스캔 업로드\n2) 소득증빙(재직·급여명세 등) 제출 → 휴업손해 반영 요청\n3) 위자료 상향 사유(통원빈도/통증/불편사항) 메모 정리\n4) 위 내용 근거로 조정요청서 또는 담당자에게 카톡/메일 발송\n\n필요하시면 제가 제출용 문구도 정리해 드릴게요.', timestamp: new Date(now.getTime() - 1000 * 60 * 15).toISOString() },
+      ])
+      return
+    }
     const r = await fetch(`/api/assessments/${assessmentId}/messages`, { cache: "no-store" })
     if (r.ok) setMessages(await r.json())
   }
   const fetchUploads = async () => {
     if (!assessmentId) return
+    if (isDemo) {
+      const now = new Date()
+      setUploads([
+        { upload_id: 'demo-kt', filename: '카톡내용.txt', file_type: 'text/plain', file_size: 12456, upload_status: 'completed', ocr_status: 'completed', created_at: new Date(now.getTime() - 1000 * 60 * 30).toISOString() },
+        { upload_id: 'demo-img', filename: '심사-내역서.png', file_type: 'image/png', file_size: 342399, upload_status: 'completed', ocr_status: 'completed', created_at: new Date(now.getTime() - 1000 * 60 * 28).toISOString() },
+      ])
+      return
+    }
     const r = await fetch(`/api/assessments/${assessmentId}/uploads`, { cache: "no-store" })
     if (r.ok) {
       const data = await r.json()
@@ -100,7 +120,7 @@ export default function AssessmentRoomPage() {
 
   // poll assistant message state while sending
   useEffect(() => {
-    if (!sending || !assessmentId) return
+    if (!sending || !assessmentId || isDemo) return
     let active = true
     const tick = async () => {
       if (!active) return
@@ -125,7 +145,7 @@ export default function AssessmentRoomPage() {
 
   // poll uploads while OCR is in progress
   useEffect(() => {
-    if (!assessmentId) return
+    if (!assessmentId || isDemo) return
     const inProgress = uploads.some(u => {
       const s = (u.ocr_status || '').toLowerCase()
       return s === 'pending' || s === 'processing'
@@ -145,12 +165,28 @@ export default function AssessmentRoomPage() {
     const content = input
     setInput("")
     setMessages((prev) => [...prev, { id: Date.now(), role: "user", content, timestamp: new Date().toISOString() }])
+    if (isDemo) {
+      // Simulate assistant answer using demo files
+      setTimeout(() => {
+        const lower = content.toLowerCase()
+        const asksHow = content.includes('어떻게') || content.includes('어떡') || content.includes('하면 되')
+        const reply = asksHow
+          ? `진행 방법 안내드릴게요.\n\n요약 금액(가정):\n- 총 손해 추정액: 1,800,000원\n- 현재 제시액: 1,250,000원\n- 추가 수령 예상: 350,000~600,000원\n- 목표 합계: 1,600,000~1,850,000원\n\n다음 순서로 진행해 주세요:\n1) 치료비/약제비/교통비 영수증 재정리 후 스캔 업로드\n2) 소득증빙(재직·급여명세 등) 제출 → 휴업손해 반영 요청\n3) 위자료 상향 사유(통원빈도/통증/불편사항) 메모 정리\n4) 위 내용 근거로 조정요청서 또는 담당자에게 카톡/메일 발송\n\n필요하시면 제출용 문구도 정리해 드릴게요.`
+          : `제공하신 자료(카톡 대화/심사 내역서)를 기준으로 판단해보면, 추가 수령 가능성이 있습니다.\n\n요약:\n- 초기 제시액에 위자료/교통비 누락 소지\n- 휴업손해는 소득 증빙 시 일부 반영 가능\n\n권장 대응:\n1) 병원 진료확인서 및 영수증 재정리\n2) 교통비/약제비 영수증 묶음 제출\n3) 소득 증빙(재직/급여명세)로 휴업손해 보완\n\n추정 추가 수령 범위: 약 35만~60만원\n참고로 현재 제시액 1,250,000원 기준, 목표 합계는 1,600,000~1,850,000원 수준입니다.`
+        setMessages((prev) => [...prev, { id: Date.now() + 1, role: 'assistant', content: reply, timestamp: new Date().toISOString() }])
+      }, 600)
+      return
+    }
     setSending(true)
-    await fetch(`/api/assessments/${assessmentId}/ask`, {
+    const r = await fetch(`/api/assessments/${assessmentId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content })
     })
+    // If post fails, revert sending flag and inform user minimally
+    if (!r.ok) {
+      setSending(false)
+    }
   }
 
   const onUpload = async () => {
@@ -185,19 +221,17 @@ export default function AssessmentRoomPage() {
         <div className="border-b p-3 text-sm text-gray-600">분석 #{assessmentId}</div>
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-3">
-            {/* initial guide when empty */}
-            {messages.length === 0 && !sending && (
-              <div className="flex justify-start">
-                <Card className="bg-white max-w-[80%]">
-                  <CardContent className="p-3 text-sm whitespace-pre-wrap">
-                    안녕하세요! 보험 분석을 시작할까요?
-                    {"\n"}궁금한 점을 적어주시거나 문서를 업로드해 주세요.
-                    {"\n\n"}- 증빙 파일(진단서, 진료내역 등)을 첨부해 주세요.
-                    {"\n"}- OCR 처리 중에는 분석이 지연될 수 있어요.
-                  </CardContent>
-                </Card>
-              </div>
-            )}
+            {/* guide chat should always appear at top */}
+            <div className="flex justify-start">
+              <Card className="bg-white max-w-[80%] border-dashed">
+                <CardContent className="p-3 text-sm whitespace-pre-wrap">
+                  안녕하세요! 보험 분석을 시작할까요?
+                  {"\n"}궁금한 점을 적어주시거나 문서를 업로드해 주세요.
+                  {"\n\n"}- 증빙 파일(진단서, 진료내역 등)을 첨부해 주세요.
+                  {"\n"}- OCR 처리 중에는 분석이 지연될 수 있어요.
+                </CardContent>
+              </Card>
+            </div>
             {messages.map(m => (
               <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
                 <Card className={m.role === 'user' ? 'bg-orange-50 max-w-[80%]' : 'bg-white max-w-[80%]'}>
@@ -263,4 +297,3 @@ export default function AssessmentRoomPage() {
     </div>
   )
 }
-
