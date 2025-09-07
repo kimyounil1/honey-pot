@@ -12,7 +12,7 @@
 /.next/
 /out/
 next-env.d.ts
-
+/next-js/pnpm-lock.yaml
 # === Production Builds ===
 /build
 dist/
@@ -53,7 +53,7 @@ yarn-error.log*
 .vscode/
 .idea/
 TODO.txt
-
+patch.diff
 # === Vercel ===
 .vercel
 

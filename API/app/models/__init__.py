@@ -13,6 +13,9 @@ from .coverageItemWeightModel import CoverageItemWeight
 from .complementarityRulesModel import ComplementarityRules
 from . import userModel
 from . import chatModel
+from .assessmentModel import Assessment
+from .attachmentModel import AssessmentAttachment
+from .assessmentMessageModel import AssessmentMessage
 __all__ = [
     "Base", "Column", "Integer", "String", "Date", "DateTime", "Float", "Text",
     "ForeignKey", "Enum", "PickleType", "relationship", "MutableList",
@@ -24,4 +27,7 @@ __all__ = [
     "PolicyPremium",
     "CoverageItemWeight",
     "ComplementarityRules",
+    "Assessment",
+    "AssessmentAttachment",
+    "AssessmentMessage",
 ]

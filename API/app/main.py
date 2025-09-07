@@ -8,6 +8,8 @@ from app.logging_conf import setup_logging
 from app.database import Base, engine, AsyncSessionLocal
 from app.services.non_benefit_seed import maybe_seed_on_start
 from app.routers import user, policy, claim, chat, document, test, non_benefit, ocr, sync
+from app.routers import assessment as assessment_router
+from app.routers import me as me_router
 from app.crud import userCRUD
 from app.schemas import userSchema
 from contextlib import asynccontextmanager
@@ -116,6 +118,8 @@ if __name__ == "__main__":
 # 기간 암박 청구 팝업
 # main.py
 from app.routers import claim_timeline as claim_timeline_router, notifications as notifications_router
+app.include_router(assessment_router.router)
+app.include_router(me_router.router)
 app.include_router(claim_timeline_router.router)
 app.include_router(notifications_router.router)
 
