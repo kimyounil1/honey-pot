@@ -77,7 +77,8 @@ async def prepare_llm_request(
         )
     # 4) (필요 시) RAG 보조
     rag_parts: List[str] = []
-    if use_retrieval and mode in (Mode.TERMS, Mode.REFUND):
+    run_retrieval = (use_retrieval and mode in (Mode.TERMS, Mode.REFUND)) or (mode == Mode.REFUND and not db_block)
+    if run_retrieval:
         os_block = await retrieve(
             mode=mode,
             user_id=str(user_id),

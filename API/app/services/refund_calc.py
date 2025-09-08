@@ -13,8 +13,8 @@ SYSTEM_PROMPT = """
 
 규칙:
 1) 게이트 미충족 시: 필요한 항목을 명확히 물어보고, 특히 질병 코드가 없으면 반드시 요청하며 추정 금액을 제시하지 않는다.
-2) 게이트 충족 시: 컨텍스트의 [DB COVERAGE]와 [RAG AUTO ANSWER] 블록에서 보장/면책/한도/공제/청구요건을 찾아 보수적으로 환급금을 계산한다.
-3) [DB COVERAGE], [RAG AUTO ANSWER] 블록이 모두 없으면 컨텍스트를 사용하지 말고 일반적 기준으로 답변하지 말며, "내 보험을 선택 후에 질문을 입력 하시면 더 정확하게 안내드릴 수 있습니다."를 출력한다.
+2) 게이트 충족 시: 컨텍스트의 [DB COVERAGE], [RAG AUTO ANSWER] 또는 [RAG CONTEXT] 블록에서 보장/면책/한도/공제/청구요건을 찾아 보수적으로 환급금을 계산한다.
+3) [DB COVERAGE], [RAG AUTO ANSWER], [RAG CONTEXT] 블록이 모두 없으면 컨텍스트를 사용하지 말고 일반적 기준으로 답변하지 말며, "내 보험을 선택 후에 질문을 입력 하시면 더 정확하게 안내드릴 수 있습니다."를 출력한다.
 4) 자동차/산재 등 중복보상 배제 여부를 확인한다.
 5) 모르는 변수(입원/통원, 급여/비급여, 공제 등)는 불리하게 가정한다.
 
@@ -46,7 +46,8 @@ def build_messages(user_text: str, context: str = "") -> List[Dict[str, str]]:
     """사용자 입력과 컨텍스트를 기반으로 LLM에 전달할 메시지를 구성합니다."""
     has_db_coverage = "[DB COVERAGE]" in (context or "")
     has_rag_answer = "[RAG AUTO ANSWER]" in (context or "")
-    ctx = context if (has_db_coverage or has_rag_answer) else ""
+    has_rag_context = "[RAG CONTEXT]" in (context or "")
+    ctx = context if (has_db_coverage or has_rag_answer or has_rag_context) else ""
 
     if ctx.strip():
         source_instruction = (
