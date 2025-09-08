@@ -159,7 +159,7 @@ def _search_snippets(query: str, k: int = 8, policy_id: Optional[str] = None, po
             "query": {
                 "multi_match": {
                     "query": query,
-                    "fields": ["section_title^2", "content"],
+                    "fields": ["section_title^2", "content^2"],
                     "type": "best_fields",
                     "tie_breaker": 0.2,
                 }

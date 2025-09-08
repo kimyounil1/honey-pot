@@ -61,6 +61,26 @@ def decide_use_retrieval(
     # if n_attachments > 0:
     #     return mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND)
 
+    # REFUND: 금액/질병코드/상품 언급이 있는 경우 RAG를 적극 사용
+    if mode == Mode.REFUND:
+        try:
+            # ICD-10 패턴 (예: J00, S83.2 …)
+            if re.search(r"\b[A-Za-z][0-9]{2,3}[A-Za-z0-9\.]*\b", txt):
+                return True
+            # 금액/통화 언급
+            if re.search(r"\d[\d,\.\s]*(원|만원|won)", txt, re.IGNORECASE):
+                return True
+            # 보험/상품/보험사 키워드 힌트
+            insurer_kws = [
+                "보험", "실손", "실비", "실손의료비", "암보험", "상해",
+                "롯데", "삼성", "한화", "현대", "KB", "메리츠", "DB", "흥국", "교보", "라이나", "농협", "우체국"
+            ]
+            if any(k in txt for k in insurer_kws):
+                return True
+        except Exception:
+            # 문제가 있어도 기본 정책으로 진행
+            pass
+
     if any(k in txt for k in _HINT_RAG):
         return mode in (Mode.TERMS, Mode.REFUND, Mode.RECOMMEND)
 
