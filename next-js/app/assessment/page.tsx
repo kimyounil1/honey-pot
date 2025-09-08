@@ -14,9 +14,9 @@ export default function AssessmentPage() {
 
   useEffect(() => {
     const dummyAssessments: Assessment[] = [
-      { id: 1, title: "자동차 보상 문의", insurer: "A손해보험", created_at: "2025-01-09T10:30:00Z", last_message: "보상 문의 드립니다.", message_count: 5 },
-      { id: 2, title: "실손보험 증빙 서류", insurer: "B손해보험", created_at: "2025-01-08T15:20:00Z", last_message: "서류 확인 중입니다.", message_count: 3 },
-      { id: 3, title: "종합보험 상담", insurer: "C손해보험", created_at: "2025-01-07T09:15:00Z", last_message: "비교 결과 안내드립니다.", message_count: 8 },
+      { id: 1, title: "자동차보험 보상 문의", insurer: "롯데손해보험", created_at: "2025-01-09T10:30:00Z", last_message: "합의금 적정성 확인", message_count: 5 },
+      { id: 2, title: "추돌사고 휴업손해 문의", insurer: "현대해상", created_at: "2025-01-08T15:20:00Z", last_message: "휴업손해 반영 가능성 문의", message_count: 4 },
+      { id: 3, title: "렌트카 비용 보상 문의", insurer: "삼성화재", created_at: "2025-01-07T09:15:00Z", last_message: "대차 기간 인정 범위 확인", message_count: 6 },
     ]
     const dummyChatHistory: ChatHistory[] = [
       { id: 101, title: "보험 가입 문의", last_message: "계약 추천 부탁드려요.", created_at: "2025-01-09T14:00:00Z" },
@@ -90,4 +90,3 @@ export default function AssessmentPage() {
     </div>
   )
 }
-

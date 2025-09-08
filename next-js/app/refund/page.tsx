@@ -318,7 +318,7 @@ function SectionAssessable({ items }: { items: AssessableItem[] }) {
                 </div>
               )}
               <div className="pt-2 flex gap-2">
-                <Link href="/assessment/1" className="inline-flex">
+                <Link href={`/assessment/${a.id}`} className="inline-flex">
                   <Button size="sm" className="bg-gradient-to-r from-emerald-500 to-emerald-600 text-white">
                     심사 하러가기
                   </Button>

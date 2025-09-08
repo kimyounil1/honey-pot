@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { Plus, FileText, MessageCircle, User, LogOut } from "lucide-react"
+import {Plus, FileText, MessageCircle, User, LogOut, TrendingUp, Droplet} from "lucide-react"
 
 export type AssessmentItem = {
   id: number
@@ -44,12 +44,12 @@ export default function AssessmentSidebar({
   }
 
   return (
-    <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
-      <div className="p-4 border-b border-gray-200">
-        <div className="flex items-center justify-between mb-4">
+    <div className="w-96 bg-white flex flex-col">
+      <div className="p-4">
+        <div className="flex items-center justify-between">
           <Link href="/" className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-gradient-to-r from-orange-400 to-orange-500 rounded-lg flex items-center justify-center">
-              <FileText className="h-4 w-4 text-white" />
+            <div className="w-10 h-10 bg-gradient-to-r from-orange-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg">
+              <Droplet className="h-5 w-5 text-white" />
             </div>
             <span className="font-bold text-gray-800">꿀통</span>
           </Link>
@@ -63,19 +63,45 @@ export default function AssessmentSidebar({
             <LogOut className="h-4 w-4" />
           </Button>
         </div>
+      </div>
 
+      <div className="p-4">
         <Button
           onClick={onNewAssessmentClick}
           className="w-full bg-gradient-to-r from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 text-white"
         >
-          <Plus className="h-4 w-4 mr-2" />새 분석
+          <Plus className="h-4 w-4 mr-2" />문서 분석 시작
         </Button>
       </div>
-
+      <div className="py-2"><Separator /></div>
       <ScrollArea className="flex-1">
-        <div className="p-4 space-y-6">
+        <div className="p-4 space-y-4">
+          {/* Quick actions */}
+          <div className="space-y-2">
+            <Link href="/chat" className="w-full inline-flex">
+              <Button variant="ghost" className="w-full justify-start text-left text-gray-800">
+                <MessageCircle className="h-4 w-4 mr-3 text-gray-700" />내 채팅 가기
+              </Button>
+            </Link>
+            <Link href="/chat?open=insuranceCheck" className="w-full inline-flex">
+              <Button variant="ghost" className="w-full justify-start text-left text-gray-800">
+                <User className="h-4 w-4 mr-3 text-gray-700" />나의 보험 확인하기
+              </Button>
+            </Link>
+            <Link href="/chat?open=insuranceAdd" className="w-full inline-flex">
+              <Button variant="ghost" className="w-full justify-start text-left text-gray-800">
+                <User className="h-4 w-4 mr-3 text-gray-700" />나의 보험 추가하기
+              </Button>
+            </Link>
+            <Link href="/refund" className="w-full inline-flex">
+              <Button variant="ghost" className="w-full justify-start text-left text-gray-800">
+                <TrendingUp className="h-4 w-4 mr-3 text-green-600" />내 환급금 찾기
+              </Button>
+            </Link>
+          </div>
+          <Separator />
           <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
               <FileText className="h-4 w-4 mr-2" />
               보험 분석 ({assessments.length})
             </h3>

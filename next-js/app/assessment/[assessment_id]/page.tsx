@@ -33,15 +33,17 @@ type UploadItem = {
 export default function AssessmentRoomPage() {
   const params = useParams()
   const assessmentId = Number((params as any)?.assessment_id)
-  const isDemo = assessmentId === 1
+  // Demo for three samples (id: 1, 2, 3)
+  const isDemo = assessmentId === 1 || assessmentId === 2 || assessmentId === 3
 
   // Sidebar data
   const [assessments, setAssessments] = useState<AssessmentItem[]>([])
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([])
   useEffect(() => {
     const dummyAssessments: AssessmentItem[] = [
-      { id: 1, title: "자동차보험 보상 문의", insurer: "롯데 손해보험", created_at: new Date().toISOString(), last_message: "최근 메시지", message_count: 5 },
-      { id: 2, title: "실손보험 증빙 서류", insurer: "B손해보험", created_at: new Date(Date.now() - 86400000).toISOString() },
+      { id: 1, title: "자동차보험 보상 문의", insurer: "롯데손해보험", created_at: new Date().toISOString(), last_message: "최근 메시지", message_count: 5 },
+      { id: 2, title: "추돌사고 휴업손해 문의", insurer: "현대해상", created_at: new Date(Date.now() - 86400000).toISOString(), last_message: "휴업손해 반영 가능성 문의", message_count: 4 },
+      { id: 3, title: "렌트카 비용 보상 문의", insurer: "삼성화재", created_at: new Date(Date.now() - 86400000 * 2).toISOString(), last_message: "대차 기간 인정 범위 확인", message_count: 6 },
     ]
     const dummyChatHistory: ChatHistoryItem[] = [
       { id: 101, title: "채팅 기록 1", created_at: new Date().toISOString() },
@@ -86,13 +88,31 @@ export default function AssessmentRoomPage() {
     if (!assessmentId) return
     if (isDemo) {
       const now = new Date()
-      setMessages([
-        { id: 1, role: 'user', content: '자동차보험 보상 문의드립니다. 합의금이 적정한지 봐주세요.', timestamp: new Date(now.getTime() - 1000 * 60 * 22).toISOString() },
-        { id: 2, role: 'assistant', content: '첨부된 카톡 대화와 심사 내역서를 확인했어요. 초기 제시액에는 위자료와 휴업손해 일부가 반영되지 않았습니다. 몇 가지 보완 시 추가 수령 가능성이 있습니다.', timestamp: new Date(now.getTime() - 1000 * 60 * 20).toISOString() },
-        { id: 3, role: 'assistant', content: '예상 추가 수령 범위는 약 35만~60만원입니다. 세부 근거는 아래와 같아요:\n- 위자료: 경미 상해 기준 가이드 상향 여지\n- 교통비/치료비 누락분\n- 휴업손해: 소득 증빙 시 부분 반영 가능', timestamp: new Date(now.getTime() - 1000 * 60 * 18).toISOString() },
-        { id: 4, role: 'user', content: '그러면 뭐 어떻게 해야하나요?', timestamp: new Date(now.getTime() - 1000 * 60 * 16).toISOString() },
-        { id: 5, role: 'assistant', content: '진행 방법 안내드릴게요.\n\n요약 금액(가정):\n- 총 손해 추정액: 1,800,000원\n- 현재 제시액: 1,250,000원\n- 추가 수령 예상: 350,000~600,000원\n- 목표 합계: 1,600,000~1,850,000원\n\n다음 순서로 진행해 주세요:\n1) 치료비/약제비/교통비 영수증 재정리 후 스캔 업로드\n2) 소득증빙(재직·급여명세 등) 제출 → 휴업손해 반영 요청\n3) 위자료 상향 사유(통원빈도/통증/불편사항) 메모 정리\n4) 위 내용 근거로 조정요청서 또는 담당자에게 카톡/메일 발송\n\n필요하시면 제가 제출용 문구도 정리해 드릴게요.', timestamp: new Date(now.getTime() - 1000 * 60 * 15).toISOString() },
-      ])
+      if (assessmentId === 1) {
+        setMessages([
+          { id: 1, role: 'user', content: '자동차보험 보상 문의드립니다. 합의금이 적정한지 봐주세요.', timestamp: new Date(now.getTime() - 1000 * 60 * 22).toISOString() },
+          { id: 2, role: 'assistant', content: '첨부된 카톡 대화와 심사 내역서를 확인했어요. 초기 제시액에는 위자료와 휴업손해 일부가 반영되지 않았습니다. 몇 가지 보완 시 추가 수령 가능성이 있습니다.', timestamp: new Date(now.getTime() - 1000 * 60 * 20).toISOString() },
+          { id: 3, role: 'assistant', content: '예상 추가 수령 범위는 약 35만~60만원입니다. 세부 근거는 아래와 같아요:\n- 위자료: 경미 상해 기준 가이드 상향 여지\n- 교통비/치료비 누락분\n- 휴업손해: 소득 증빙 시 부분 반영 가능', timestamp: new Date(now.getTime() - 1000 * 60 * 18).toISOString() },
+          { id: 4, role: 'user', content: '그러면 뭐 어떻게 해야하나요?', timestamp: new Date(now.getTime() - 1000 * 60 * 16).toISOString() },
+          { id: 5, role: 'assistant', content: '진행 방법 안내드릴게요.\n\n요약 금액(가정):\n- 총 손해 추정액: 1,800,000원\n- 현재 제시액: 1,250,000원\n- 추가 수령 예상: 350,000~600,000원\n- 목표 합계: 1,600,000~1,850,000원\n\n다음 순서로 진행해 주세요:\n1) 치료비/약제비/교통비 영수증 재정리 후 스캔 업로드\n2) 소득증빙(재직·급여명세 등) 제출 → 휴업손해 반영 요청\n3) 위자료 상향 사유(통원빈도/통증/불편사항) 메모 정리\n4) 위 내용 근거로 조정요청서 또는 담당자에게 카톡/메일 발송\n\n필요하시면 제가 제출용 문구도 정리해 드릴게요.', timestamp: new Date(now.getTime() - 1000 * 60 * 15).toISOString() },
+        ])
+      } else if (assessmentId === 2) {
+        setMessages([
+          { id: 1, role: 'user', content: '추돌사고로 통원치료 중입니다. 휴업손해 반영이 가능한가요?', timestamp: new Date(now.getTime() - 1000 * 60 * 30).toISOString() },
+          { id: 2, role: 'assistant', content: '업로드하신 통원 영수증과 진료확인서를 확인했습니다. 통원일수 및 통증 정도로 보아 단기간의 휴업손해 반영 여지가 있습니다.', timestamp: new Date(now.getTime() - 1000 * 60 * 28).toISOString() },
+          { id: 3, role: 'assistant', content: '다만 현 제시액에는 교통비 일부와 약제비 누락이 있어 보입니다. 보완 시 약 15만~30만원 증액 여지가 있습니다.', timestamp: new Date(now.getTime() - 1000 * 60 * 26).toISOString() },
+          { id: 4, role: 'user', content: '필요한 증빙은 뭐가 있을까요?', timestamp: new Date(now.getTime() - 1000 * 60 * 24).toISOString() },
+          { id: 5, role: 'assistant', content: '필요 서류 안내드립니다.\n\n- 통원 영수증(교통비 포함) 원본 또는 스캔\n- 진료확인서(통원횟수/기간 확인 가능)\n- 재직증명서 + 급여명세(휴업손해 반영용)\n\n제출 후 제가 반영 요청 문구까지 정리해 드릴게요.', timestamp: new Date(now.getTime() - 1000 * 60 * 23).toISOString() },
+        ])
+      } else if (assessmentId === 3) {
+        setMessages([
+          { id: 1, role: 'user', content: '사고나서 렌트카를 사용했는데 대차 기간 인정이 애매합니다.', timestamp: new Date(now.getTime() - 1000 * 60 * 40).toISOString() },
+          { id: 2, role: 'assistant', content: '업로드하신 수리견적서와 렌트 영수증을 확인했습니다. 수리기간 대비 대차 기간 산정이 가능해 보이며 일부 불인정 기간 조정이 필요합니다.', timestamp: new Date(now.getTime() - 1000 * 60 * 38).toISOString() },
+          { id: 3, role: 'assistant', content: '현재 제시액에서는 렌트 단가가 약관 기준보다 낮게 반영된 부분이 있습니다. 단가 재산정과 필요기간 입증 시 증액 가능성이 있습니다.', timestamp: new Date(now.getTime() - 1000 * 60 * 36).toISOString() },
+          { id: 4, role: 'user', content: '그럼 어떻게 진행하면 좋을까요?', timestamp: new Date(now.getTime() - 1000 * 60 * 34).toISOString() },
+          { id: 5, role: 'assistant', content: '진행 방법은 다음과 같습니다.\n\n1) 정비소 수리완료 확인서(입·출고일 포함) 요청\n2) 렌트 이용 내역서에 차량급, 단가, 일수 명시 요청\n3) 약관상 대차 인정 기준 근거 정리 후 재산정 요청\n\n이후 필요 시 담당자에게 보낼 문구도 만들어 드릴게요.', timestamp: new Date(now.getTime() - 1000 * 60 * 33).toISOString() },
+        ])
+      }
       return
     }
     const r = await fetch(`/api/assessments/${assessmentId}/messages`, { cache: "no-store" })
@@ -102,10 +122,22 @@ export default function AssessmentRoomPage() {
     if (!assessmentId) return
     if (isDemo) {
       const now = new Date()
-      setUploads([
-        { upload_id: 'demo-kt', filename: '카톡내용.txt', file_type: 'text/plain', file_size: 12456, upload_status: 'completed', ocr_status: 'completed', created_at: new Date(now.getTime() - 1000 * 60 * 30).toISOString() },
-        { upload_id: 'demo-img', filename: '심사-내역서.png', file_type: 'image/png', file_size: 342399, upload_status: 'completed', ocr_status: 'completed', created_at: new Date(now.getTime() - 1000 * 60 * 28).toISOString() },
-      ])
+      if (assessmentId === 1) {
+        setUploads([
+          { upload_id: 'demo-1-kt', filename: '카톡대화.txt', file_type: 'text/plain', file_size: 12456, upload_status: 'completed', ocr_status: 'completed', created_at: new Date(now.getTime() - 1000 * 60 * 30).toISOString() },
+          { upload_id: 'demo-1-img', filename: '심사내역서.png', file_type: 'image/png', file_size: 342399, upload_status: 'completed', ocr_status: 'completed', created_at: new Date(now.getTime() - 1000 * 60 * 28).toISOString() },
+        ])
+      } else if (assessmentId === 2) {
+        setUploads([
+          { upload_id: 'demo-2-receipt', filename: '통원영수증.pdf', file_type: 'application/pdf', file_size: 52344, upload_status: 'completed', ocr_status: 'completed', created_at: new Date(now.getTime() - 1000 * 60 * 45).toISOString() },
+          { upload_id: 'demo-2-med', filename: '진료확인서.jpg', file_type: 'image/jpeg', file_size: 234455, upload_status: 'completed', ocr_status: 'completed', created_at: new Date(now.getTime() - 1000 * 60 * 43).toISOString() },
+        ])
+      } else if (assessmentId === 3) {
+        setUploads([
+          { upload_id: 'demo-3-rent', filename: '렌트영수증.pdf', file_type: 'application/pdf', file_size: 78901, upload_status: 'completed', ocr_status: 'completed', created_at: new Date(now.getTime() - 1000 * 60 * 55).toISOString() },
+          { upload_id: 'demo-3-estimate', filename: '수리견적서.png', file_type: 'image/png', file_size: 444321, upload_status: 'completed', ocr_status: 'completed', created_at: new Date(now.getTime() - 1000 * 60 * 52).toISOString() },
+        ])
+      }
       return
     }
     const r = await fetch(`/api/assessments/${assessmentId}/uploads`, { cache: "no-store" })

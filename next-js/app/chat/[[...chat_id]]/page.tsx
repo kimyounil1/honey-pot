@@ -1,6 +1,6 @@
 "use client"
 
-import { useRouter, useParams } from "next/navigation"
+import { useRouter, useParams, useSearchParams } from "next/navigation"
 import { useState, useEffect, useMemo, useRef } from "react"
 import dynamic from "next/dynamic"                    
 import { Button } from "@/components/ui/button"
@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, LogOut, ChevronDown, ChevronRight, ChevronUp, Droplet, Files, Webhook, Upload } from 'lucide-react'
+import { Separator } from "@/components/ui/separator"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { sendChatRequest } from "@/lib/sendChatRequst"
@@ -108,6 +109,7 @@ function TopBanner({
   );
 }
 export default function ChatPage() {
+  const searchParams = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false)
   // const [showNewChatModal, setShowNewChatModal] = useState(false)
   const [showInsuranceModal, setShowInsuranceModal] = useState(false)
@@ -134,6 +136,15 @@ export default function ChatPage() {
   function hideBanner() {
     setBannerOpen(false);
   }
+
+  // Open specific modals when coming from external links
+  useEffect(() => {
+    const open = searchParams.get('open');
+    if (open === 'insuranceCheck') setShowInsuranceCheckModal(true)
+    if (open === 'insuranceAdd') setShowInsuranceModal(true)
+    if (open === 'policyAnalysis') setShowPolicyAnalysisModal(true)
+    if (open === 'refundFinder') setShowRefundFinderModal(true)
+  }, [searchParams])
 
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([])
 
@@ -551,9 +562,9 @@ export default function ChatPage() {
 
       {/* Sidebar */}
       <div
-        className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 w-96 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col lg:h-svh overflow-y-auto min-h-0 flex-shrink-0`}
+        className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 w-96 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col lg:h-svh overflow-hidden min-h-0 flex-shrink-0`}
       >
-        <div className="flex items-center justify-between p-4 border-b">
+        <div className="flex items-center justify-between p-4">
           <div className="flex items-center space-x-2 cursor-pointer" onClick={resetToHome}>
             <div className="w-10 h-10 bg-gradient-to-r from-orange-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg">
               <Droplet className="h-5 w-5 text-white" />
@@ -575,46 +586,39 @@ export default function ChatPage() {
             </Button>
           </div>
         </div>
-
-        <nav className="px-4 space-y-2">
-          {/* 심사 페이지로 이동 */}
-          <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words" onClick={() => router.push('/assessment')}>
-            <FileText className="mr-3 h-4 w-4 text-orange-600" /> 보험 심사
-          </Button>
-          <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words" onClick={() => setShowInsuranceCheckModal(true)}> 
-            <User className="mr-3 h-4 w-4 text-gray-800" />
-            나의 보험 확인하기
-          </Button>
-          <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words" onClick={() => setShowInsuranceModal(true)}> 
-            <User className="mr-3 h-4 w-4 text-gray-800" />
-            나의 보험 추가하기
-          </Button>
-          <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words hidden" onClick={() => setShowPolicyAnalysisModal(true)}> 
-            <FileText className="mr-3 h-4 w-4 text-blue-600" />
-            내 보험 약관 분석
-          </Button>
-          <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words" onClick={() => router.push("/refund")}>
-          <TrendingUp className="mr-3 h-4 w-4 text-green-600" />
-            내 환급금 찾기
-          </Button>
-          <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words hidden" onClick={() => setShowRecommendationModal(true)}> 
-            <Shield className="mr-3 h-4 w-4 text-purple-600" />
-            보험 추천
-          </Button>
-          {/* 채팅 기록 고정 노출 (assessment 스타일) */}
-          <div className="w-full flex items-center text-gray-800 font-semibold text-sm mt-2">
-            <MessageCircle className="mr-3 h-4 w-4" /> 채팅 기록
-          </div>
-        </nav>
-
-          <div className="px-4 mt-6 flex-1 flex-col hidden lg:flex">
-            <div className="relative mb-4 hidden">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input placeholder="채팅 검색" className="pl-10" />
-            </div>
-            
-            <h4 className="text-sm font-medium text-gray-500 mb-3 hidden">최근 채팅</h4>
-            <ScrollArea className="flex-1">
+        <div className="py-2"><Separator /></div>
+        <ScrollArea className="flex-1">
+          <div className="p-4 space-y-2">
+            {/* 심사 페이지로 이동 */}
+            <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words" onClick={() => router.push('/assessment')}>
+              <FileText className="mr-3 h-4 w-4 text-orange-600" /> 보험 심사
+            </Button>
+            <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words" onClick={() => setShowInsuranceCheckModal(true)}> 
+              <User className="mr-3 h-4 w-4 text-gray-800" />
+              나의 보험 확인하기
+            </Button>
+            <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words" onClick={() => setShowInsuranceModal(true)}> 
+              <User className="mr-3 h-4 w-4 text-gray-800" />
+              나의 보험 추가하기
+            </Button>
+            <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words hidden" onClick={() => setShowPolicyAnalysisModal(true)}> 
+              <FileText className="mr-3 h-4 w-4 text-blue-600" />
+              내 보험 약관 분석
+            </Button>
+            <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words" onClick={() => router.push('/refund')}>
+              <TrendingUp className="mr-3 h-4 w-4 text-green-600" />
+              내 환급금 찾기
+            </Button>
+            <Button variant="ghost" className="w-full justify-start text-left text-gray-800 whitespace-normal break-words hidden" onClick={() => setShowRecommendationModal(true)}> 
+              <Shield className="mr-3 h-4 w-4 text-purple-600" />
+              보험 추천
+            </Button>
+            <div className="py-2"><Separator /></div>
+            {/* 채팅 기록 고정 노출 */}
+            <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
+              <MessageCircle className="mr-3 h-4 w-4" /> 채팅 기록
+            </h3>
+            <div className="mt-4">
               <div className="space-y-2">
                 {chatSessions.map((chat) => (
                   <div
@@ -642,8 +646,9 @@ export default function ChatPage() {
                   </div>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           </div>
+        </ScrollArea>
 
         <div className="p-4 border-t mt-auto">
           <Button 
