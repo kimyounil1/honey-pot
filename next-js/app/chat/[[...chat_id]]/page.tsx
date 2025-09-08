@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, LogOut, ChevronDown, ChevronRight, ChevronUp, Droplet, Files, Webhook, Upload } from 'lucide-react'
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { sendChatRequest } from "@/lib/sendChatRequst"
 import { v4 as uuidv4 } from 'uuid'
 // import NewChatModal from "./new-chat-modal"
@@ -782,12 +784,52 @@ export default function ChatPage() {
                             )}
                             </Avatar>
                             <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
-                                <div className="whitespace-pre-wrap">
+                                <div className="text-sm">
                                     {message.role === "assistant"
-                                    ? (message.content === "" && messageState && messageState !== "complete"
-                                        ? STATE_TEXT[messageState as NonDoneState]
-                                        : (message.content))
-                                    : message.content}
+                                        ? (message.content === "" && messageState && messageState !== "complete"
+                                            ? STATE_TEXT[messageState as NonDoneState]
+                                            : (
+                                                <ReactMarkdown
+                                                    remarkPlugins={[remarkGfm]}
+                                                    components={{
+                                                        ul: ({ node, ...props }) => (
+                                                            <ul className="list-disc pl-5 my-2" {...props} />
+                                                        ),
+                                                        ol: ({ node, ...props }) => (
+                                                            <ol className="list-decimal pl-5 my-2" {...props} />
+                                                        ),
+                                                        li: ({ node, ...props }) => <li className="my-1" {...props} />,
+                                                        p: ({ node, ...props }) => (
+                                                            <p className="mb-2 whitespace-pre-wrap" {...props} />
+                                                        ),
+                                                        code: ({ inline, className, children, ...props }) => (
+                                                            <code
+                                                                className={(className || "") + (inline
+                                                                    ? " px-1 py-0.5 rounded bg-slate-100"
+                                                                    : " block w-full whitespace-pre overflow-x-auto p-2 rounded bg-slate-100")}
+                                                                {...props}
+                                                            >
+                                                                {children}
+                                                            </code>
+                                                        ),
+                                                        a: ({ node, ...props }) => (
+                                                            <a className="text-blue-600 underline" {...props} />
+                                                        ),
+                                                        table: ({ node, ...props }) => (
+                                                            <table className="my-2 border-collapse table-auto w-full text-sm" {...props} />
+                                                        ),
+                                                        th: ({ node, ...props }) => (
+                                                            <th className="border px-2 py-1 text-left bg-slate-50" {...props} />
+                                                        ),
+                                                        td: ({ node, ...props }) => (
+                                                            <td className="border px-2 py-1" {...props} />
+                                                        ),
+                                                    }}
+                                                >
+                                                    {message.content}
+                                                </ReactMarkdown>
+                                            ))
+                                        : <div className="whitespace-pre-wrap">{message.content}</div>}
                                 </div>
                             </div>
                         </div>

@@ -51,7 +51,7 @@ export default function AssessmentSidebar({
             <div className="w-8 h-8 bg-gradient-to-r from-orange-400 to-orange-500 rounded-lg flex items-center justify-center">
               <FileText className="h-4 w-4 text-white" />
             </div>
-            <span className="font-bold text-gray-800">꿀단지</span>
+            <span className="font-bold text-gray-800">꿀통</span>
           </Link>
           <Button
             variant="ghost"
@@ -107,28 +107,7 @@ export default function AssessmentSidebar({
               ))}
             </div>
           </div>
-
           <Separator />
-
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
-              <MessageCircle className="h-4 w-4 mr-2" />
-              채팅 기록
-            </h3>
-            <div className="space-y-2">
-              {chatHistory.slice(0, 10).map((chat) => (
-                <Card key={chat.id} className="cursor-pointer hover:shadow-md transition-shadow border-0 shadow-sm">
-                  <CardContent className="p-3">
-                    <div className="flex items-start justify-between mb-2">
-                      <h4 className="font-medium text-sm text-gray-900 line-clamp-1">{chat.title}</h4>
-                      <span className="text-xs text-gray-500 ml-2 flex-shrink-0">{formatDate(chat.created_at)}</span>
-                    </div>
-                    {chat.last_message && <p className="text-xs text-gray-600 line-clamp-2">{chat.last_message}</p>}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
         </div>
       </ScrollArea>
 

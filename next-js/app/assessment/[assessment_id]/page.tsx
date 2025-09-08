@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Upload, Send } from "lucide-react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import AssessmentSidebar, { AssessmentItem, ChatHistoryItem } from "@/components/AssessmentSidebar"
 
 type Message = {
@@ -38,7 +40,7 @@ export default function AssessmentRoomPage() {
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([])
   useEffect(() => {
     const dummyAssessments: AssessmentItem[] = [
-      { id: 1, title: "자동차보험 보상 문의", insurer: "A손해보험", created_at: new Date().toISOString(), last_message: "최근 메시지", message_count: 2 },
+      { id: 1, title: "자동차보험 보상 문의", insurer: "롯데 손해보험", created_at: new Date().toISOString(), last_message: "최근 메시지", message_count: 5 },
       { id: 2, title: "실손보험 증빙 서류", insurer: "B손해보험", created_at: new Date(Date.now() - 86400000).toISOString() },
     ]
     const dummyChatHistory: ChatHistoryItem[] = [
@@ -225,9 +227,10 @@ export default function AssessmentRoomPage() {
             <div className="flex justify-start">
               <Card className="bg-white max-w-[80%] border-dashed">
                 <CardContent className="p-3 text-sm whitespace-pre-wrap">
-                  안녕하세요! 보험 분석을 시작할까요?
+                  안녕하세요! 보험 심사 분석을 시작할까요?
                   {"\n"}궁금한 점을 적어주시거나 문서를 업로드해 주세요.
-                  {"\n\n"}- 증빙 파일(진단서, 진료내역 등)을 첨부해 주세요.
+                  {"\n"}업로드 한 파일 내용을 기반으로 분석을 진행 합니다.
+                  {"\n\n"}- 대화 내용과 증빙 파일(진단서, 진료내역 등)을 첨부해 주세요.
                   {"\n"}- OCR 처리 중에는 분석이 지연될 수 있어요.
                 </CardContent>
               </Card>
@@ -235,8 +238,53 @@ export default function AssessmentRoomPage() {
             {messages.map(m => (
               <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
                 <Card className={m.role === 'user' ? 'bg-orange-50 max-w-[80%]' : 'bg-white max-w-[80%]'}>
-                  <CardContent className="p-3 text-sm whitespace-pre-wrap">
-                    {m.content}
+                  <CardContent className="p-3 text-sm">
+                    {m.role === 'assistant' ? (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          ul: ({ node, ...props }) => (
+                            <ul className="list-disc pl-5 my-2" {...props} />
+                          ),
+                          ol: ({ node, ...props }) => (
+                            <ol className="list-decimal pl-5 my-2" {...props} />
+                          ),
+                          li: ({ node, ...props }) => <li className="my-1" {...props} />,
+                          p: ({ node, ...props }) => (
+                            <p className="mb-2 whitespace-pre-wrap" {...props} />
+                          ),
+                          code: ({ inline, className, children, ...props }) => (
+                            <code
+                              className={
+                                (className || "") +
+                                (inline
+                                  ? " px-1 py-0.5 rounded bg-slate-100"
+                                  : " block w-full whitespace-pre overflow-x-auto p-2 rounded bg-slate-100")
+                              }
+                              {...props}
+                            >
+                              {children}
+                            </code>
+                          ),
+                          a: ({ node, ...props }) => (
+                            <a className="text-blue-600 underline" {...props} />
+                          ),
+                          table: ({ node, ...props }) => (
+                            <table className="my-2 border-collapse table-auto w-full text-sm" {...props} />
+                          ),
+                          th: ({ node, ...props }) => (
+                            <th className="border px-2 py-1 text-left bg-slate-50" {...props} />
+                          ),
+                          td: ({ node, ...props }) => (
+                            <td className="border px-2 py-1" {...props} />
+                          ),
+                        }}
+                      >
+                        {m.content}
+                      </ReactMarkdown>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{m.content}</div>
+                    )}
                   </CardContent>
                 </Card>
               </div>

@@ -2,6 +2,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -26,13 +28,21 @@ type ClaimItem = {
   claim_date?: string | null;
   claimed_amount?: number | null;
   approved_amount?: number | null;
-  status?: string | null; // 'SUBMITTED' | 'UNDER_REVIEW' 등
+  status?: string | null; // 'SUBMITTED' | 'UNDER_REVIEW' | 'COMPLETED'
+};
+
+type AssessableItem = {
+  id: number;
+  title: string;
+  insurer?: string | null;
+  created_at?: string | null;
 };
 
 export default function RefundDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [timelines, setTimelines] = useState<TimelineItem[]>([]);
   const [claims, setClaims] = useState<ClaimItem[]>([]);
+  const [assessable, setAssessable] = useState<AssessableItem[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -42,6 +52,7 @@ export default function RefundDashboardPage() {
         const data = await res.json();
         setTimelines(data.timelines ?? []);
         setClaims(data.claims ?? []);
+        setAssessable(data.assessable ?? []);
       } catch (e) {
         console.error(e);
       } finally {
@@ -53,9 +64,17 @@ export default function RefundDashboardPage() {
   const grouped = useMemo(() => {
     const pending = claims.filter((c) => (c.status ?? "").toUpperCase() === "SUBMITTED");
     const reviewing = claims.filter((c) => (c.status ?? "").toUpperCase() === "UNDER_REVIEW");
+    const completed = claims.filter((c) => (c.status ?? "").toUpperCase() === "COMPLETED");
     const available = timelines;
-    return { available, pending, reviewing, allCount: available.length + pending.length + reviewing.length };
-  }, [timelines, claims]);
+    return {
+      available,
+      assessable,
+      pending,
+      reviewing,
+      completed,
+      allCount: available.length + pending.length + reviewing.length + completed.length,
+    };
+  }, [timelines, claims, assessable]);
 
   if (loading) {
     return (
@@ -70,10 +89,16 @@ export default function RefundDashboardPage() {
 
   return (
     <div className="min-h-screen bg-white">
+      {/* Main logo (top-left) linking to /chat */}
+      <Link href="/chat" className="fixed top-4 left-4 z-50 inline-flex items-center gap-2 group">
+        <Image src="/placeholder-logo.svg" alt="메인" width={28} height={28} priority />
+        <span className="sr-only">채팅 메인으로 이동</span>
+      </Link>
+
       <section className="bg-gradient-to-br from-orange-50 to-yellow-50 border-b">
         <div className="container mx-auto px-4 py-10">
           <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">환급금 찾기</h1>
-          <p className="text-gray-600">내가 받을 수 있는 항목과 진행 상태를 한눈에 확인하세요.</p>
+          <p className="text-gray-600">받을 수 있는 환급과 진행 상태를 확인하세요</p>
         </div>
       </section>
 
@@ -85,25 +110,37 @@ export default function RefundDashboardPage() {
                 전체 <Badge variant="secondary" className="ml-2">{grouped.allCount}</Badge>
               </TabsTrigger>
               <TabsTrigger value="available">
-                청구가능 <Badge className="ml-2 bg-orange-500">{grouped.available.length}</Badge>
+                청구 가능<Badge className="ml-2 bg-orange-500">{grouped.available.length}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="assessable">
+                보험심사 가능<Badge className="ml-2 bg-emerald-600">{grouped.assessable.length}</Badge>
               </TabsTrigger>
               <TabsTrigger value="pending">
-                청구중 <Badge className="ml-2 bg-amber-500">{grouped.pending.length}</Badge>
+                접수됨<Badge className="ml-2 bg-amber-500">{grouped.pending.length}</Badge>
               </TabsTrigger>
               <TabsTrigger value="reviewing">
-                보험심사중 <Badge className="ml-2 bg-yellow-600">{grouped.reviewing.length}</Badge>
+                보험심사중<Badge className="ml-2 bg-yellow-600">{grouped.reviewing.length}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="completed">
+                보험심사 완료<Badge className="ml-2 bg-green-600">{grouped.completed.length}</Badge>
               </TabsTrigger>
             </TabsList>
           </div>
 
           <TabsContent value="all" className="space-y-8">
             <SectionAvailable items={grouped.available} />
+            <SectionAssessable items={grouped.assessable} />
             <SectionPending items={grouped.pending} />
             <SectionReviewing items={grouped.reviewing} />
+            <SectionCompleted items={grouped.completed} />
           </TabsContent>
 
           <TabsContent value="available">
             <SectionAvailable items={grouped.available} />
+          </TabsContent>
+
+          <TabsContent value="assessable">
+            <SectionAssessable items={grouped.assessable} />
           </TabsContent>
 
           <TabsContent value="pending">
@@ -113,22 +150,26 @@ export default function RefundDashboardPage() {
           <TabsContent value="reviewing">
             <SectionReviewing items={grouped.reviewing} />
           </TabsContent>
+
+          <TabsContent value="completed">
+            <SectionCompleted items={grouped.completed} />
+          </TabsContent>
         </Tabs>
       </div>
     </div>
   );
 }
 
-/** ▼▼ “청구가능” 섹션: 요약 칩이 섹션 하단에서 4초마다 부드럽게 순환 표시됩니다. */
+/** 청구 가능 섹션 */
 function SectionAvailable({ items }: { items: TimelineItem[] }) {
-  if (!items?.length) return <Empty label="청구가능 항목이 없어요." />;
+  if (!items?.length) return <Empty label="청구 가능한 항목이 없어요" />;
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-        <TrendingUp className="h-5 w-5 text-orange-500" /> 청구가능
+        <TrendingUp className="h-5 w-5 text-orange-500" /> 청구 가능
       </h2>
 
-      {/* 순환 요약 칩 */}
+      {/* 하이라이트 배지 */}
       <RotatingHighlight items={items} intervalMs={4000} />
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -138,12 +179,12 @@ function SectionAvailable({ items }: { items: TimelineItem[] }) {
             <Card key={it.id} className="border-0 shadow-sm hover:shadow-md transition-all">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base text-gray-900">
-                  {it.insurer ?? "보험사 미지정"} · {it.policy_id ?? "상품코드 미지정"}
+                  {it.insurer ?? "보험사 미확인"} · {it.policy_id ?? "상품코드 미확인"}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-gray-700">
                 <div className="flex items-center gap-2">
-                  <Badge className="bg-orange-500">청구가능</Badge>
+                  <Badge className="bg-orange-500">청구 가능</Badge>
                   {it.disease_name && (
                     <span>
                       {it.disease_name}
@@ -152,21 +193,23 @@ function SectionAvailable({ items }: { items: TimelineItem[] }) {
                   )}
                 </div>
                 <div>
-                  기산일: <b>{fmtDate(it.base_date)}</b> · 마감일: <b>{fmtDate(it.deadline_date)}</b>
+                  기산일 <b>{fmtDate(it.base_date)}</b> · 마감일 <b>{fmtDate(it.deadline_date)}</b>
                   {dday >= 0 && <Badge variant="secondary" className="ml-2">D-{dday}</Badge>}
                 </div>
                 {it.expected_amount && (
                   <div>
-                    예상 환급액: <b>{num(it.expected_amount)}원</b>
+                    예상 지급액 <b>{num(it.expected_amount)}</b>
                   </div>
                 )}
                 <div className="pt-2 flex gap-2">
                   <Button size="sm" className="bg-gradient-to-r from-orange-400 to-orange-500 text-white">
                     바로 청구하기
                   </Button>
-                  <Button size="sm" variant="outline">
-                    채팅으로 확인
-                  </Button>
+                  <Link href="/chat" className="inline-flex">
+                    <Button size="sm" variant="outline">
+                      채팅으로 확인
+                    </Button>
+                  </Link>
                 </div>
               </CardContent>
             </Card>
@@ -178,10 +221,10 @@ function SectionAvailable({ items }: { items: TimelineItem[] }) {
 }
 
 function SectionPending({ items }: { items: ClaimItem[] }) {
-  if (!items?.length) return <Empty label="청구중인 항목이 없어요." />;
+  if (!items?.length) return <Empty label="접수 중인 항목이 없어요" />;
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-semibold text-gray-900">청구중</h2>
+      <h2 className="text-xl font-semibold text-gray-900">접수됨</h2>
       <div className="grid md:grid-cols-2 gap-4">
         {items.map((c) => (
           <Card key={c.claim_id} className="border-0 shadow-sm hover:shadow-md transition-all">
@@ -189,9 +232,9 @@ function SectionPending({ items }: { items: ClaimItem[] }) {
               <CardTitle className="text-base text-gray-900">청구 ID #{c.claim_id}</CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-gray-700 space-y-1">
-              <div>청구일: <b>{fmtDate(c.claim_date)}</b></div>
-              {c.claimed_amount != null && <div>청구액: <b>{num(c.claimed_amount)}원</b></div>}
-              <div className="flex items-center gap-2"><Badge className="bg-amber-500">청구중</Badge></div>
+              <div>접수일 <b>{fmtDate(c.claim_date)}</b></div>
+              {c.claimed_amount != null && <div>청구액 <b>{num(c.claimed_amount)}</b></div>}
+              <div className="flex items-center gap-2"><Badge className="bg-amber-500">접수됨</Badge></div>
             </CardContent>
           </Card>
         ))}
@@ -201,7 +244,7 @@ function SectionPending({ items }: { items: ClaimItem[] }) {
 }
 
 function SectionReviewing({ items }: { items: ClaimItem[] }) {
-  if (!items?.length) return <Empty label="보험심사중인 항목이 없어요." />;
+  if (!items?.length) return <Empty label="보험심사중인 항목이 없어요" />;
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
@@ -214,7 +257,7 @@ function SectionReviewing({ items }: { items: ClaimItem[] }) {
               <CardTitle className="text-base text-gray-900">청구 ID #{c.claim_id}</CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-gray-700 space-y-1">
-              <div>접수일: <b>{fmtDate(c.claim_date)}</b></div>
+              <div>접수일 <b>{fmtDate(c.claim_date)}</b></div>
               <div className="flex items-center gap-2"><Badge className="bg-yellow-600">보험심사중</Badge></div>
             </CardContent>
           </Card>
@@ -224,7 +267,72 @@ function SectionReviewing({ items }: { items: ClaimItem[] }) {
   );
 }
 
-/** ▼▼ 섹션 하단에서 4초마다 부드럽게 넘어가는 요약 칩 */
+function SectionCompleted({ items }: { items: ClaimItem[] }) {
+  if (!items?.length) return <Empty label="보험심사 완료 항목이 없어요" />;
+  return (
+    <div className="space-y-4">
+      <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+        <ShieldCheck className="h-5 w-5 text-green-600" /> 보험심사 완료
+      </h2>
+      <div className="grid md:grid-cols-2 gap-4">
+        {items.map((c) => (
+          <Card key={c.claim_id} className="border-0 shadow-sm hover:shadow-md transition-all">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base text-gray-900">청구 ID #{c.claim_id}</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-gray-700 space-y-1">
+              <div>접수일 <b>{fmtDate(c.claim_date)}</b></div>
+              {c.approved_amount != null && (
+                <div>
+                  최종 승인금액 <b>{num(c.approved_amount)}</b>
+                </div>
+              )}
+              <div className="flex items-center gap-2"><Badge className="bg-green-600">심사 완료</Badge></div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SectionAssessable({ items }: { items: AssessableItem[] }) {
+  if (!items?.length) return <Empty label="보험심사 가능 항목이 없어요" />;
+  return (
+    <div className="space-y-4">
+      <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+        <ShieldCheck className="h-5 w-5 text-emerald-600" /> 보험심사 가능
+      </h2>
+      <div className="grid md:grid-cols-2 gap-4">
+        {items.map((a) => (
+          <Card key={a.id} className="border-0 shadow-sm hover:shadow-md transition-all">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base text-gray-900">
+                {a.title} {a.insurer ? `· ${a.insurer}` : ""}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-gray-700 space-y-1">
+              {a.created_at && (
+                <div>
+                  생성일 <b>{fmtDate(a.created_at)}</b>
+                </div>
+              )}
+              <div className="pt-2 flex gap-2">
+                <Link href="/assessment/1" className="inline-flex">
+                  <Button size="sm" className="bg-gradient-to-r from-emerald-500 to-emerald-600 text-white">
+                    심사 하러가기
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 상단 회전 하이라이트 배지 */
 function RotatingHighlight({ items, intervalMs = 4000 }: { items: TimelineItem[]; intervalMs?: number }) {
   const safeItems = items.filter((i) => i.deadline_date || i.expected_amount != null);
   if (safeItems.length === 0) return null;
@@ -235,15 +343,14 @@ function RotatingHighlight({ items, intervalMs = 4000 }: { items: TimelineItem[]
   useEffect(() => {
     if (safeItems.length === 1) return;
     const timer = setInterval(() => {
-      // 간단한 페이드/슬라이드 아웃 후 인
       setShow(false);
       const t = setTimeout(() => {
         setIdx((i) => (i + 1) % safeItems.length);
         setShow(true);
-      }, 220); // out duration과 맞춤
-      return () => clearTimeout(t);
+      }, 220);
+      return () => clearTimeout(t as unknown as number);
     }, intervalMs);
-    return () => clearInterval(timer);
+    return () => clearInterval(timer as unknown as number);
   }, [safeItems.length, intervalMs]);
 
   const it = safeItems[idx];
@@ -259,8 +366,8 @@ function RotatingHighlight({ items, intervalMs = 4000 }: { items: TimelineItem[]
         show ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1",
       ].join(" ")}
     >
-      <span className="text-gray-600">예상 합계</span>
-      <span className="font-semibold text-emerald-600">{num(it.expected_amount ?? 0)}원</span>
+      <span className="text-gray-600">예상 금액</span>
+      <span className="font-semibold text-emerald-600">{num(it.expected_amount ?? 0)}</span>
       <span className="text-gray-400">·</span>
       <span className="text-gray-600">가장 빠른 마감일</span>
       <span className="font-semibold text-rose-600">{fmtDate(it.deadline_date)}</span>
