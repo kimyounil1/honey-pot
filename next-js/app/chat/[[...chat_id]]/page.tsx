@@ -9,13 +9,12 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, LogOut, ChevronDown, ChevronRight, ChevronUp, Droplet, Files, Webhook, Upload } from 'lucide-react'
+import { MessageCircle, Send, Plus, Search, FileText, TrendingUp, Shield, User, Menu, X, LogOut, ChevronDown, ChevronRight, ChevronUp, Droplet, Files, Webhook, Upload, Loader2 } from 'lucide-react'
 import { Separator } from "@/components/ui/separator"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { sendChatRequest } from "@/lib/sendChatRequst"
 import { v4 as uuidv4 } from 'uuid'
-// import NewChatModal from "./new-chat-modal"
 import InsuranceAddModal from "./insurance-add-modal"
 import InsuranceCheckModal from "./insurance-check-modal copy"
 import ProfileModal from "./profile-modal"
@@ -25,13 +24,52 @@ import RefundFinderModal from "./refund-finder-modal"
 import RecommendationModal from "./recommendation-modal"
 import FileSubmitModal from "./file-submit-modal"
 
-// ✅ 팝업을 클라이언트에서만 렌더 (SSR 비활성)
+function BotAvatar() {
+  return (
+    <div className="flex-none w-8 h-8 min-w-[2rem] min-h-[2rem] rounded-full bg-gradient-to-r from-orange-400 to-orange-500 flex items-center justify-center shadow-sm ring-1 ring-black/5">
+      <Droplet className="h-4 w-4 text-white" />
+    </div>
+  )
+}
 
+/* ===== 귀여운 로딩용: 벌 궤도 + 부드러운 상태 전환 ===== */
+function BeeOrbit() {
+  return (
+    <div className="relative h-5 w-5">
+      <div className="absolute inset-0 rounded-full border border-amber-300/70" />
+      <div className="absolute inset-0 bee-orbit">
+        <div className="absolute left-1/2 top-0 -translate-x-1/2">
+          <span className="bee-counter text-base leading-none select-none">🐝</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+type NonDoneState =
+  | "commencing"
+  | "classifying"
+  | "analyzing"
+  | "searching"
+  | "building"
+  | "failed";
+
+function StateIndicator({ state, textMap }: { state: NonDoneState; textMap: Record<NonDoneState, string> }) {
+  return (
+    <div className="flex items-center gap-2 text-gray-600">
+      <BeeOrbit />
+      <span key={state} className="state-change">{textMap[state]}</span>
+      <span className="loading-dots" aria-hidden="true">
+        <span>.</span><span>.</span><span>.</span>
+      </span>
+    </div>
+  );
+}
+
+// ✅ 팝업을 클라이언트에서만 렌더 (SSR 비활성)
 const DeadlinePopup = dynamic(
   () => import("@/components/ui/deadline-popup"),
   { ssr: false }
 );
-
 
 interface ChatSession {
   id: number;
@@ -52,13 +90,6 @@ interface Message {
   }
 }
 
-type NonDoneState =
-  | "commencing"
-  | "classifying"
-  | "analyzing"
-  | "searching"
-  | "building"
-  | "failed";
 type MessageState = NonDoneState | "done" | "complete";
 const TERMINAL_STATES: MessageState[] = ["done", "failed", "complete"];
 const isTerminal = (s: MessageState) => TERMINAL_STATES.includes(s);
@@ -111,7 +142,6 @@ function TopBanner({
 export default function ChatPage() {
   const searchParams = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  // const [showNewChatModal, setShowNewChatModal] = useState(false)
   const [showInsuranceModal, setShowInsuranceModal] = useState(false)
   const [showInsuranceCheckModal, setShowInsuranceCheckModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
@@ -163,26 +193,18 @@ export default function ChatPage() {
   const [isUploading, setIsUploading] = useState(false)
   const [messageState, setMessageState] = useState<MessageState>()
 
+  // ✅ 친절한 톤의 상태 문구
   const STATE_TEXT: Record<NonDoneState, string> = {
-    commencing: "...",
-    classifying: "메세지를 분류중입니다...",
-    analyzing: "제공하신 자료를 분석중입니다...",
-    searching: "데이터를 바탕으로 결과를 분석중입니다...",
-    building: "응답을 받아오는 중...",
-    failed: "에러 발생",
+    commencing: "대화 준비 중이에요.",
+    classifying: "질문 요지 파악 중이에요.",
+    analyzing: "제공하신 자료 분석 중이에요~",
+    searching: "근거를 찾는 중이에요~",
+    building: "답변 정리 중이에요.",
+    failed: "오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
   };
 
   // 파일 업로드 응답 임시보관
   const pendingUploadRef = useRef<any | null>(null)
-
-//   // chatId 변경 시 히스토리 로드
-//   useEffect(() => {
-//     if (chatId) {
-//         fetchChatHistory(chatId, { allowEmptyReplace: false });
-//     } else {
-//         setMessages([]);
-//     }
-//   }, [chatId]);
 
   // 메세지 상태 폴링(페이지 로딩시)
   useEffect(() => {
@@ -247,7 +269,6 @@ export default function ChatPage() {
     const controller = new AbortController(); // cleanup에서만 사용
 
     const tick = async () => {
-    console.log("startPolling 호출", active)
       if (!active) return;
       try {
         const res = await fetch(`/api/chat/${chatId}/messageState?t=${Date.now()}`, {
@@ -274,17 +295,17 @@ export default function ChatPage() {
         }
       }
 
-    if (active) {
-      setTimeout(tick, 300);
-    }
-  };
+      if (active) {
+        setTimeout(tick, 300);
+      }
+    };
 
-  tick();
+    tick();
 
-  return () => {
-    active = false;
-    controller.abort(); // 여기서만 abort
-  };
+    return () => {
+      active = false;
+      controller.abort(); // 여기서만 abort
+    };
   };
 
   const fetchChatHistory = async (id: number, opts: { allowEmptyReplace?: boolean } = {}) => {
@@ -538,7 +559,6 @@ export default function ChatPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await submitMessage(input, { clearInput: true });
-    console.log(messages)
   };
 
   // FAQ 클릭
@@ -766,79 +786,77 @@ export default function ChatPage() {
             <div className="max-w-3xl mx-auto space-y-4" data-popup-anchor="main-card">
                 {displayedMessages.length === 0 && chatId && messageState !== "done" ? (
                     <div className="flex justify-start">
-                    <div className="flex space-x-3 max-w-2xl">
-                        <Avatar className="w-8 h-8">
-                        <AvatarImage src="/placeholder.svg?height=32&width=32" />
-                        </Avatar>
+                      <div className="flex space-x-3 max-w-2xl">
+                        <BotAvatar />
                         <div className="rounded-lg px-4 py-2 bg-white border shadow-sm">
-                        <div className="whitespace-pre-wrap">
-                            {STATE_TEXT[messageState as NonDoneState]}
+                          <div className="whitespace-pre-wrap">
+                            <StateIndicator state={(messageState ?? 'commencing') as NonDoneState} textMap={STATE_TEXT} />
+                          </div>
                         </div>
-                        </div>
-                    </div>
+                      </div>
                     </div>
                 ) : (
                     displayedMessages.map((message) => (
                         <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                             <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
-                            <Avatar className="w-8 h-8">
-                            {message.role === "user" ? (
-                                <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
-                            ) : (
-                                <AvatarImage src="/placeholder.svg?height=32&width=32" />
-                            )}
-                            </Avatar>
-                            <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
+                              {message.role === "user" ? (
+                                <Avatar className="flex-none w-8 h-8 min-w-[2rem] min-h-[2rem]">
+                                  <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
+                                </Avatar>
+                              ) : (
+                                <BotAvatar />
+                              )}
+                              <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
                                 <div className="text-sm">
-                                    {message.role === "assistant"
-                                        ? (message.content === "" && messageState && messageState !== "complete"
-                                            ? STATE_TEXT[messageState as NonDoneState]
-                                            : (
-                                                <ReactMarkdown
-                                                    remarkPlugins={[remarkGfm]}
-                                                    components={{
-                                                        ul: ({ node, ...props }) => (
-                                                            <ul className="list-disc pl-5 my-2" {...props} />
-                                                        ),
-                                                        ol: ({ node, ...props }) => (
-                                                            <ol className="list-decimal pl-5 my-2" {...props} />
-                                                        ),
-                                                        li: ({ node, ...props }) => <li className="my-1" {...props} />,
-                                                        p: ({ node, ...props }) => (
-                                                            <p className="mb-2 whitespace-pre-wrap" {...props} />
-                                                        ),
-                                                        code: ({ inline, className, children, ...props }) => (
-                                                            <code
-                                                                className={(className || "") + (inline
-                                                                    ? " px-1 py-0.5 rounded bg-slate-100"
-                                                                    : " block w-full whitespace-pre overflow-x-auto p-2 rounded bg-slate-100")}
-                                                                {...props}
-                                                            >
-                                                                {children}
-                                                            </code>
-                                                        ),
-                                                        a: ({ node, ...props }) => (
-                                                            <a className="text-blue-600 underline" {...props} />
-                                                        ),
-                                                        table: ({ node, ...props }) => (
-                                                            <table className="my-2 border-collapse table-auto w-full text-sm" {...props} />
-                                                        ),
-                                                        th: ({ node, ...props }) => (
-                                                            <th className="border px-2 py-1 text-left bg-slate-50" {...props} />
-                                                        ),
-                                                        td: ({ node, ...props }) => (
-                                                            <td className="border px-2 py-1" {...props} />
-                                                        ),
-                                                    }}
-                                                >
-                                                    {message.content}
-                                                </ReactMarkdown>
-                                            ))
-                                        : <div className="whitespace-pre-wrap">{message.content}</div>}
+                                  {message.role === "assistant"
+                                    ? (message.content === "" && messageState && messageState !== "complete"
+                                        ? <StateIndicator state={(messageState ?? 'commencing') as NonDoneState} textMap={STATE_TEXT} />
+                                        : (
+                                            <ReactMarkdown
+                                              remarkPlugins={[remarkGfm]}
+                                              components={{
+                                                ul: ({ node, ...props }) => (
+                                                  <ul className="list-disc pl-5 my-2" {...props} />
+                                                ),
+                                                ol: ({ node, ...props }) => (
+                                                  <ol className="list-decimal pl-5 my-2" {...props} />
+                                                ),
+                                                li: ({ node, ...props }) => <li className="my-1" {...props} />,
+                                                p: ({ node, ...props }) => (
+                                                  <p className="mb-2 whitespace-pre-wrap" {...props} />
+                                                ),
+                                                code: ({ inline, className, children, ...props }) => (
+                                                  <code
+                                                    className={(className || "") + (inline
+                                                      ? " px-1 py-0.5 rounded bg-slate-100"
+                                                      : " block w-full whitespace-pre overflow-x-auto p-2 rounded bg-slate-100")}
+                                                    {...props}
+                                                  >
+                                                    {children}
+                                                  </code>
+                                                ),
+                                                a: ({ node, ...props }) => (
+                                                  <a className="text-blue-600 underline" {...props} />
+                                                ),
+                                                table: ({ node, ...props }) => (
+                                                  <table className="my-2 border-collapse table-auto w-full text-sm" {...props} />
+                                                ),
+                                                th: ({ node, ...props }) => (
+                                                  <th className="border px-2 py-1 text-left bg-slate-50" {...props} />
+                                                ),
+                                                td: ({ node, ...props }) => (
+                                                  <td className="border px-2 py-1" {...props} />
+                                                ),
+                                              }}
+                                            >
+                                              {message.content}
+                                            </ReactMarkdown>
+                                          ))
+                                    : <div className="whitespace-pre-wrap">{message.content}</div>}
                                 </div>
+                              </div>
                             </div>
                         </div>
-                    </div>
                     ))
                 )}
             </div>
@@ -896,11 +914,6 @@ export default function ChatPage() {
       <PolicyAnalysisModal isOpen={showPolicyAnalysisModal} onClose={() => setShowPolicyAnalysisModal(false)} onDone={(p) => handlePolicyAnalysis(p)} />
       <RefundFinderModal isOpen={showRefundFinderModal} onClose={() => setShowRefundFinderModal(false)} onAnalyze={(text) => handleRefundAnalysis(text)} />
       <RecommendationModal isOpen={showRecommendationModal} onClose={() => setShowRecommendationModal(false)} onComplete={handleRecommendationComplete} />
-
-      {/* 🔎 Tiny debug overlay (삭제해도 됩니다)
-      <div className="fixed bottom-2 right-2 text-[11px] bg-black/70 text-white px-2 py-1 rounded shadow z-50 select-none">
-        chatId: {String(chatId ?? 'none')} | msgs: {messages.length} | active:{String(hasActiveThread)} | state:{messageState}
-      </div> */}
     </div>
   )
 }

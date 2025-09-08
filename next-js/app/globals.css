@@ -88,3 +88,50 @@
     @apply bg-background text-foreground;
   }
 }
+
+
+/* ===== 꿀통 채팅: 귀여운 로딩 애니메이션 ===== */
+
+/* 원 궤도 회전(바깥 래퍼) */
+@keyframes bee-orbit-spin {
+  to { transform: rotate(360deg); }
+}
+.bee-orbit {
+  animation: bee-orbit-spin 1.8s linear infinite;
+}
+
+/* 벌 이모지 반대방향 회전(자연스러운 방향 유지) */
+@keyframes bee-counter-spin {
+  to { transform: rotate(-360deg); }
+}
+.bee-counter {
+  display: inline-block;
+  animation: bee-counter-spin 1.8s linear infinite;
+}
+
+/* 상태 문구 전환 시, 살짝 페이드+슬라이드 */
+@keyframes state-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.state-change {
+  animation: state-in .22s ease-out;
+}
+
+/* 점점점 애니메이션 (…, ……, ……… 루프) */
+@keyframes dot-blink {
+  0%, 20%   { opacity: 0; }
+  50%       { opacity: 1; }
+  100%      { opacity: 0; }
+}
+.loading-dots {
+  display: inline-flex;
+  gap: 1px;
+  margin-left: 2px;
+}
+.loading-dots span {
+  opacity: 0;
+  animation: dot-blink 1.2s infinite;
+}
+.loading-dots span:nth-child(2) { animation-delay: .2s; }
+.loading-dots span:nth-child(3) { animation-delay: .4s; }
