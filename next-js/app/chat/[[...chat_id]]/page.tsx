@@ -544,13 +544,13 @@ export default function ChatPage() {
   const getChatTypeName = (type: string) => {
     switch (type) {
       case "REFUND":
-        return "환급금"
+        return "환급"
       case "TERMS":
-        return "약관분석"
+        return "약관"
       case "RECOMMEND":
         return "추천"
       default:
-        return "일반상담"
+        return "일반"
     }
   }
 
@@ -805,12 +805,12 @@ export default function ChatPage() {
                             <div className={`flex space-x-3 max-w-2xl ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>
                               {message.role === "user" ? (
                                 <Avatar className="flex-none w-8 h-8 min-w-[2rem] min-h-[2rem]">
-                                  <AvatarFallback className="bg-blue-500 text-white">U</AvatarFallback>
+                                  <AvatarFallback className="bg-orange-400 text-white">U</AvatarFallback>
                                 </Avatar>
                               ) : (
                                 <BotAvatar />
                               )}
-                              <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-blue-500 text-white" : "bg-white border shadow-sm"}`}>
+                              <div className={`rounded-lg px-4 py-2 ${message.role === "user" ? "bg-orange-400 text-white" : "bg-white border shadow-sm"}`}>
                                 <div className="text-sm">
                                   {message.role === "assistant"
                                     ? (message.content === "" && messageState && messageState !== "complete"
