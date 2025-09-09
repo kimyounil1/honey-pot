@@ -10,6 +10,7 @@ from app.services.common import Mode
 from app.config import settings
 from typing import List, Dict, Any
 from starlette.concurrency import run_in_threadpool
+import asyncio
 from sqlalchemy import select, func
 from app.database import AsyncSessionLocal
 from app.models import (
@@ -114,7 +115,7 @@ def _os_client() -> OpenSearch:
         use_ssl=True,
         verify_certs=True,
         connection_class=RequestsHttpConnection,
-        timeout=20,
+        timeout=120,
         max_retries=2,
         retry_on_timeout=True,
     )
@@ -159,7 +160,7 @@ def _search_snippets(query: str, k: int = 8, policy_id: Optional[str] = None, po
             "query": {
                 "multi_match": {
                     "query": query,
-                    "fields": ["section_title^2", "content^2"],
+                    "fields": ["section_title^2", "content"],
                     "type": "best_fields",
                     "tie_breaker": 0.2,
                 }
@@ -206,6 +207,54 @@ def _search_snippets(query: str, k: int = 8, policy_id: Optional[str] = None, po
         index, total, k, _trim(out[0].get("section_title")), _trim(query)
     )
     return out
+
+def _search_user_knowledge(query: str, k: int, user_id: Optional[int | str]) -> List[Dict[str, Any]]:
+    """Search user-specific knowledge (indexed from uploads) for the given user_id."""
+    try:
+        if not user_id:
+            return []
+        index = getattr(settings, "OPENSEARCH_INDEX", None)
+        uid = int(user_id) if isinstance(user_id, (int, str)) and str(user_id).isdigit() else None
+        if uid is None:
+            return []
+        body: Dict[str, Any] = {
+            "size": max(1, min(k, 20)),
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"term": {"doc_type": "user_knowledge"}},
+                        {"term": {"user_id": uid}},
+                    ],
+                    "must": [
+                        {"multi_match": {"query": query, "fields": ["content^3", "section_title^2", "entry"], "type": "best_fields"}}
+                    ],
+                }
+            },
+            "_source": True,
+        }
+        resp = _os_client().search(index=index, body=body)
+        hits = resp.get("hits", {}).get("hits", []) or []
+        out: List[Dict[str, Any]] = []
+        for h in hits:
+            s = h.get("_source", {}) or {}
+            out.append({
+                "score": h.get("_score", 0.0),
+                "section_title": s.get("section_title", "") or "",
+                "content": s.get("content", "") or "",
+                "filename": s.get("filename", ""),
+                "insurer": s.get("insurer", ""),
+                "version": s.get("version", ""),
+                "policy_id": s.get("policy_id", "") or s.get("policy", ""),
+                "effective_date": s.get("effective_date", ""),
+            })
+        if not out:
+            logger.debug("[RAG][UK_EMPTY] user_id=%s query=%s", uid, _trim(query))
+        else:
+            logger.debug("[RAG][UK_OK] user_id=%s top_title=%s", uid, _trim(out[0].get("section_title")))
+        return out
+    except Exception as e:
+        logger.warning("[RAG][UK_ERROR] search failed: %s", e)
+        return []
 
 # ============================= Token Utils =============================
 
@@ -343,6 +392,11 @@ async def retrieve(
     try:
         # 1) (검색은 최신 질문만 사용) 스니펫 수집
         snippets: List[Dict[str, Any]] = []
+        # 1-a) 사용자 업로드 지식 우선 병합 (있으면 상단에 위치)
+        try:
+            user_snips = _search_user_knowledge(query=query, k=max(1, min(limit, 8)), user_id=user_id)
+        except Exception:
+            user_snips = []
         if product_id:
             try:
                 snippets = _search_snippets(query=query, k=limit, policy_id=product_id)
@@ -385,6 +439,10 @@ async def retrieve(
         else:
             snippets = _search_snippets(query=query, k=limit)
 
+        # 병합: 사용자 업로드 지식을 컨텍스트 상단에 배치하여 최신/개인 맥락을 우선
+        if user_snips:
+            snippets = user_snips + snippets
+
         # 2) watsonx 토큰 예산 내로 컨텍스트 패킹
         context_block, _ = _fit_snippets_to_limit(
             snippets=snippets,
@@ -404,8 +462,16 @@ async def retrieve(
 
         logger.info("\n[RAG AUTO PROMPT END]\n" + str(prompt)[:500] + ("... (truncated)" if len(str(prompt)) > 500 else ""))
 
-        # 5) 생성
-        answer = await _wx_async(prompt)
+        # 5) 생성 (watsonx 호출에 타임아웃 가드)
+        try:
+            wx_timeout = int(os.getenv("WATSONX_TIMEOUT", "120"))  # seconds
+        except Exception:
+            wx_timeout = 120
+        try:
+            answer = await asyncio.wait_for(_wx_async(prompt), timeout=wx_timeout)
+        except asyncio.TimeoutError:
+            logger.error("[RAG][WX_TIMEOUT] generation exceeded %ss (user_id=%s)", wx_timeout, str(user_id))
+            answer = ""
         logger.info("\n[RAG AUTO ANSWER END]\n%s", str(answer)[:500] + ("... (truncated)" if len(str(answer)) > 500 else ""))
 
         if (answer or "").strip():
@@ -597,7 +663,7 @@ async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: s
                     )
 
                 recs.sort(key=lambda r: r["score"], reverse=True)
-                top = recs[:3]
+                top = recs[:10]
                 lines = ["[DB RECOMMENDATION]"]
                 for idx, r in enumerate(top, 1):
                     pol = r["policy"]
@@ -651,11 +717,19 @@ async def policy_db_lookup(*, mode: Mode, entities: Dict[str, Any], user_text: s
                         period = "연" if cov.frequency_period == "year" else "계약"
                         parts.append(f"횟수 {cov.frequency_limit}회/{period}")
 
-                    detail = ", ".join(parts)
+                    detail = ", ".join([p for p in parts if p])
 
-                    ref = f" [근거: {', '.join(cov.source_ref)}]" if cov.source_ref else ""
+                    # source_ref는 문자열로 보관되므로 문자 단위 join을 하지 말 것
+                    ref = f" [근거: {cov.source_ref}]" if cov.source_ref else ""
 
-                    lines.append(f"- {pol_id}: {detail}{ref}")
+                    # coverage 항목명(name)을 함께 표기해 상충/중복을 쉽게 식별
+                    prefix = f"- {pol_id}: "
+                    if name and detail:
+                        lines.append(f"{prefix}{name}, {detail}{ref}")
+                    elif name:
+                        lines.append(f"{prefix}{name}{ref}")
+                    else:
+                        lines.append(f"{prefix}{detail}{ref}")
 
                 return "\n".join(lines)
             else:
@@ -894,7 +968,11 @@ async def summarize_prev_chats_for_context(prev_chats: Optional[List[str]], max_
         "출력: 한국어 1~2문장. 불릿/코드/머리글 금지."
     )
     try:
-        txt = await _wx_async(prompt)
+        try:
+            wx_timeout = int(os.getenv("WATSONX_TIMEOUT", "120"))
+        except Exception:
+            wx_timeout = 120
+        txt = await asyncio.wait_for(_wx_async(prompt), timeout=wx_timeout)
         out = (txt or "").strip()
         # 과도한 포맷 방지
         out = out.replace("\n", " ").strip()
