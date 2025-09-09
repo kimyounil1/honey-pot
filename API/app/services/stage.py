@@ -77,12 +77,15 @@ async def prepare_llm_request(
         )
     # 4) (필요 시) RAG 보조
     rag_parts: List[str] = []
-    run_retrieval = (use_retrieval and mode in (Mode.TERMS, Mode.REFUND)) or (mode == Mode.REFUND and not db_block)
+    # REFUND은 항상 RAG를 수행(개인 업로드/약관을 광범위하게 활용)
+    # TERMS는 분류기 제안(use_retrieval)이 on일 때만 수행
+    run_retrieval = (mode == Mode.REFUND) or (use_retrieval and mode == Mode.TERMS)
     if run_retrieval:
         os_block = await retrieve(
             mode=mode,
             user_id=str(user_id),
             query=text,
+            prev_chats=pre_chat,
             product_id=product_id,
             limit=20,
             fallback_to_global=True,
@@ -99,14 +102,19 @@ async def prepare_llm_request(
             if m:
                 code_for_check = m.group(1).upper()
         if code_for_check:
+            # 기본 줄은 항상 넣어 코드 존재를 LLM이 확실히 인지하도록 함
+            benefit_lines = [f"[ICD-10]", f"{code_for_check}"]
             try:
                 item = await nonBenefitCRUD.get_by_code(db, code_for_check)
-                if item:
-                    benefit_ctx = f"[ICD-10]\n 질병 코드 {code_for_check}는 비급여 항목입니다."
-                else:
-                    benefit_ctx = f"[ICD-10]\n 질병 코드 {code_for_check}는 급여 항목입니다."
+                if item is not None:
+                    # DB에 있으면 급여/비급여 힌트 추가
+                    if item:
+                        benefit_lines.append(" (비급여)")
+                    else:
+                        benefit_lines.append(" (급여)")
             except Exception as e:
                 logger.warning("[STAGE] nonBenefit lookup failed: %s", e)
+            benefit_ctx = "\n".join([benefit_lines[0], "".join(benefit_lines[1:])])
 
     # 5) 메시지 빌드 (context 하나로 합치기)
     # 메세지 state 갱신 (building)
@@ -116,6 +124,16 @@ async def prepare_llm_request(
         await chatCRUD.update_message_state(db, chat_id, "failed")
         raise
     context = "\n\n".join([s for s in [db_block, rag_block, benefit_ctx, ctx] if s]).strip()
+
+    # 첨부 힌트 주입: 이미지 업로드로 질병코드가 전달된 경우(제품 PDF 아님)
+    try:
+        attach_image_hint = (mode == Mode.REFUND) and (disease_code is not None) and not product_id
+    except Exception:
+        attach_image_hint = False
+    if attach_image_hint:
+        # refund_calc.build_messages가 이를 감지하여 [ATTACHMENT] 메타를 정확히 세팅할 수 있도록 컨텍스트에 힌트를 추가
+        attach_block = "[ATTACHMENT]\nimage_uploaded: true"
+        context = attach_block + ("\n\n" + context if context else "")
     messages = build_messages(mode=mode, user_text=text, context=context)
 
     logger.info(

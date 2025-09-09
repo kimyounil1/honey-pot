@@ -35,6 +35,7 @@ except Exception:
 import logging
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from app.services.ocr import extract_diagnosis_fields, ocr_file
+from app.services.assessment_ingest import analyze_text_with_gpt4o, index_assessment_entries
 from app.services.ingest import ingest_policy, preview_policy
 from app.services.vector_db import add_document
 from app.auth import deps
@@ -301,9 +302,36 @@ async def handle_ocr(
                 logger.warning("[OCR] ingest failed: %s", e)
             add_document(text, meta)
             return {"result_code": "SUCCESS", "product_id": product_id}
+        # 이미지(진단서 등) 처리 경로
         fields = await extract_diagnosis_fields(file)
-        return {"result_code": "SUCCESS", "disease_code": fields.get("icd10_code")}
+        try:
+            logger.info("[OCR] diagnosis fields (user=%s, file=%s): %s", current_user.user_id, file.filename, json.dumps(fields, ensure_ascii=False, default=str))
+        except Exception:
+            logger.info("[OCR] diagnosis fields (user=%s, file=%s) logged.", current_user.user_id, file.filename)
+        # 사용자의 첨부 이미지에서 핵심 요약 엔트리를 생성하여 개인 지식(user_knowledge)으로 색인
+        try:
+            raw_text = (fields.get("raw_text") or "").strip()
+            if raw_text:
+                entries = analyze_text_with_gpt4o(raw_text)
+                if entries:
+                    meta = {
+                        "user_id": current_user.user_id,
+                        "uploader_id": current_user.user_id,
+                        "filename": file.filename,
+                        # assessment_id 없음: 일반 채팅 첨부이므로 생략
+                    }
+                    try:
+                        indexed = index_assessment_entries(entries, meta)
+                        logger.info("[OCR] indexed user_knowledge entries=%s (user_id=%s)", indexed, current_user.user_id)
+                    except Exception as ie:
+                        logger.warning("[OCR] index user_knowledge failed: %s", ie)
+        except Exception as e2:
+            logger.warning("[OCR] analyze/index image text failed: %s", e2)
+        return {
+            "result_code": "SUCCESS",
+            "disease_code": fields.get("icd10_code"),
+            "disease_codes": fields.get("icd10_codes") or ([] if not fields.get("icd10_code") else [fields.get("icd10_code")]),
+        }
     except Exception as e:
         logger.exception("[OCR] processing failed: %s", e)
         raise HTTPException(status_code=500, detail="OCR processing failed")
-
