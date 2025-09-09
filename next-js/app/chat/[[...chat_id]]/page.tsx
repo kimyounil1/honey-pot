@@ -1,6 +1,7 @@
 "use client"
 
 import { useRouter, useParams, useSearchParams } from "next/navigation"
+import Link from "next/link"
 import { useState, useEffect, useMemo, useRef } from "react"
 import dynamic from "next/dynamic"                    
 import { Button } from "@/components/ui/button"
@@ -571,7 +572,12 @@ export default function ChatPage() {
     setMessages([]);
     setLastMessage(null);
   }
-
+  const shouldShowRefundCTA = (text: string) => {
+    try {
+      if (!text) return false;
+      return text.includes('자동 청구 페이지로 이동할까요');
+    } catch { return false }
+  }
   const displayedMessages = lastMessage ? [...messages, lastMessage] : messages;
   const shouldShowWelcome = !chatId && messages.length === 0;
 
@@ -812,45 +818,56 @@ export default function ChatPage() {
                                     ? (message.content === "" && messageState && messageState !== "complete"
                                         ? <StateIndicator state={(messageState ?? 'commencing') as NonDoneState} textMap={STATE_TEXT} />
                                         : (
-                                            <ReactMarkdown
-                                              remarkPlugins={[remarkGfm]}
-                                              components={{
-                                                ul: ({ node, ...props }) => (
-                                                  <ul className="list-disc pl-5 my-2" {...props} />
-                                                ),
-                                                ol: ({ node, ...props }) => (
-                                                  <ol className="list-decimal pl-5 my-2" {...props} />
-                                                ),
-                                                li: ({ node, ...props }) => <li className="my-1" {...props} />,
-                                                p: ({ node, ...props }) => (
-                                                  <p className="mb-2 whitespace-pre-wrap" {...props} />
-                                                ),
-                                                code: ({ inline, className, children, ...props }) => (
-                                                  <code
-                                                    className={(className || "") + (inline
-                                                      ? " px-1 py-0.5 rounded bg-slate-100"
-                                                      : " block w-full whitespace-pre overflow-x-auto p-2 rounded bg-slate-100")}
-                                                    {...props}
-                                                  >
-                                                    {children}
-                                                  </code>
-                                                ),
-                                                a: ({ node, ...props }) => (
-                                                  <a className="text-blue-600 underline" {...props} />
-                                                ),
-                                                table: ({ node, ...props }) => (
-                                                  <table className="my-2 border-collapse table-auto w-full text-sm" {...props} />
-                                                ),
-                                                th: ({ node, ...props }) => (
-                                                  <th className="border px-2 py-1 text-left bg-slate-50" {...props} />
-                                                ),
-                                                td: ({ node, ...props }) => (
-                                                  <td className="border px-2 py-1" {...props} />
-                                                ),
-                                              }}
-                                            >
-                                              {message.content}
-                                            </ReactMarkdown>
+                                            <>
+                                              <ReactMarkdown
+                                                remarkPlugins={[remarkGfm]}
+                                                components={{
+                                                  ul: ({ node, ...props }) => (
+                                                    <ul className="list-disc pl-5 my-2" {...props} />
+                                                  ),
+                                                  ol: ({ node, ...props }) => (
+                                                    <ol className="list-decimal pl-5 my-2" {...props} />
+                                                  ),
+                                                  li: ({ node, ...props }) => <li className="my-1" {...props} />,
+                                                  p: ({ node, ...props }) => (
+                                                    <p className="mb-2 whitespace-pre-wrap" {...props} />
+                                                  ),
+                                                  code: ({ inline, className, children, ...props }) => (
+                                                    <code
+                                                      className={(className || "") + (inline
+                                                        ? " px-1 py-0.5 rounded bg-slate-100"
+                                                        : " block w-full whitespace-pre overflow-x-auto p-2 rounded bg-slate-100")}
+                                                      {...props}
+                                                    >
+                                                      {children}
+                                                    </code>
+                                                  ),
+                                                  a: ({ node, ...props }) => (
+                                                    <a className="text-blue-600 underline" {...props} />
+                                                  ),
+                                                  table: ({ node, ...props }) => (
+                                                    <table className="my-2 border-collapse table-auto w-full text-sm" {...props} />
+                                                  ),
+                                                  th: ({ node, ...props }) => (
+                                                    <th className="border px-2 py-1 text-left bg-slate-50" {...props} />
+                                                  ),
+                                                  td: ({ node, ...props }) => (
+                                                    <td className="border px-2 py-1" {...props} />
+                                                  ),
+                                                }}
+                                              >
+                                                {message.content}
+                                              </ReactMarkdown>
+                                              {shouldShowRefundCTA(message.content) && (
+                                                <div className="mt-3">
+                                                  <Link href="/refund" className="inline-flex">
+                                                    <Button size="sm" className="bg-gradient-to-r from-orange-400 to-orange-500 text-white">
+                                                      환급 자동 청구로 이동
+                                                    </Button>
+                                                  </Link>
+                                                </div>
+                                              )}
+                                            </>
                                           ))
                                     : <div className="whitespace-pre-wrap">{message.content}</div>}
                                 </div>

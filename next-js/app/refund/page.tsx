@@ -3,12 +3,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Loader2, TrendingUp, ShieldCheck } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 type TimelineItem = {
   id: number;
@@ -43,23 +43,26 @@ export default function RefundDashboardPage() {
   const [timelines, setTimelines] = useState<TimelineItem[]>([]);
   const [claims, setClaims] = useState<ClaimItem[]>([]);
   const [assessable, setAssessable] = useState<AssessableItem[]>([]);
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [selected, setSelected] = useState<TimelineItem | null>(null);
+  const [tab, setTab] = useState<'all'|'available'|'assessable'|'pending'|'reviewing'|'completed'>('all');
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/refund/overview", { cache: "no-store" });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        setTimelines(data.timelines ?? []);
-        setClaims(data.claims ?? []);
-        setAssessable(data.assessable ?? []);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  const loadOverview = async () => {
+    try {
+      const res = await fetch("/api/refund/overview", { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setTimelines(data.timelines ?? []);
+      setClaims(data.claims ?? []);
+      setAssessable(data.assessable ?? []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadOverview(); }, []);
 
   const grouped = useMemo(() => {
     const pending = claims.filter((c) => (c.status ?? "").toUpperCase() === "SUBMITTED");
@@ -89,21 +92,22 @@ export default function RefundDashboardPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Main logo (top-left) linking to /chat */}
-      <Link href="/chat" className="fixed top-4 left-4 z-50 inline-flex items-center gap-2 group">
-        <Image src="/placeholder-logo.svg" alt="메인" width={28} height={28} priority />
-        <span className="sr-only">채팅 메인으로 이동</span>
-      </Link>
-
       <section className="bg-gradient-to-br from-orange-50 to-yellow-50 border-b">
         <div className="container mx-auto px-4 py-10">
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">환급금 찾기</h1>
-          <p className="text-gray-600">받을 수 있는 환급과 진행 상태를 확인하세요</p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">환급금 찾기</h1>
+              <p className="text-gray-600">받을 수 있는 환급과 진행 상태를 확인하세요</p>
+            </div>
+            <Link href="/" className="inline-flex">
+              <Button variant="outline" className="whitespace-nowrap">메인으로 돌아가기</Button>
+            </Link>
+          </div>
         </div>
       </section>
 
       <div className="container mx-auto px-4 py-8">
-        <Tabs defaultValue="all" className="w-full">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="w-full">
           <div className="flex items-center justify-between mb-4">
             <TabsList className="bg-white shadow-sm">
               <TabsTrigger value="all">
@@ -128,7 +132,7 @@ export default function RefundDashboardPage() {
           </div>
 
           <TabsContent value="all" className="space-y-8">
-            <SectionAvailable items={grouped.available} />
+            <SectionAvailable items={grouped.available} onStartClaim={(it) => { setSelected(it); setClaimOpen(true); }} />
             <SectionAssessable items={grouped.assessable} />
             <SectionPending items={grouped.pending} />
             <SectionReviewing items={grouped.reviewing} />
@@ -136,7 +140,7 @@ export default function RefundDashboardPage() {
           </TabsContent>
 
           <TabsContent value="available">
-            <SectionAvailable items={grouped.available} />
+            <SectionAvailable items={grouped.available} onStartClaim={(it) => { setSelected(it); setClaimOpen(true); }} />
           </TabsContent>
 
           <TabsContent value="assessable">
@@ -156,12 +160,57 @@ export default function RefundDashboardPage() {
           </TabsContent>
         </Tabs>
       </div>
+      {/* Claim Modal */}
+      <Dialog open={claimOpen} onOpenChange={setClaimOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>자동 청구 안내</DialogTitle>
+            <DialogDescription>
+              접수 후 영업일 기준 약 5~7일 정도 심사 및 지급 절차가 소요됩니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="text-sm text-gray-700 space-y-2">
+            <div>
+              보험사 <b>{selected?.insurer ?? '보험사 미확인'}</b> · 상품코드 <b>{selected?.policy_id ?? '미확인'}</b>
+            </div>
+            {selected?.expected_amount != null && (
+              <div>
+                예상 환급액 <b>{num(selected.expected_amount)}</b>
+              </div>
+            )}
+            {selected?.deadline_date && (
+              <div>
+                청구 마감일 <b>{fmtDate(selected.deadline_date)}</b>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={async () => {
+              if (!selected) { setClaimOpen(false); return; }
+              const pid = Number.parseInt(String(selected.policy_id ?? '0').replace(/[^0-9]/g, '')) || 9999;
+              const amt = typeof selected.expected_amount === 'number' ? selected.expected_amount : Number.parseInt(String(selected.expected_amount ?? '0'), 10) || 0;
+              try {
+                await fetch('/api/refund/overview', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ policy_id: pid, claimed_amount: amt })
+                });
+              } finally {
+                setClaimOpen(false);
+                await loadOverview();
+                setTab('pending');
+              }
+            }} className="bg-orange-500 hover:bg-orange-600 text-white">청구 시작</Button>
+            <Button variant="outline" onClick={() => setClaimOpen(false)}>취소</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 /** 청구 가능 섹션 */
-function SectionAvailable({ items }: { items: TimelineItem[] }) {
+function SectionAvailable({ items, onStartClaim }: { items: TimelineItem[]; onStartClaim: (it: TimelineItem) => void }) {
   if (!items?.length) return <Empty label="청구 가능한 항목이 없어요" />;
   return (
     <div className="space-y-4">
@@ -202,7 +251,7 @@ function SectionAvailable({ items }: { items: TimelineItem[] }) {
                   </div>
                 )}
                 <div className="pt-2 flex gap-2">
-                  <Button size="sm" className="bg-gradient-to-r from-orange-400 to-orange-500 text-white">
+                  <Button size="sm" className="bg-gradient-to-r from-orange-400 to-orange-500 text-white" onClick={() => onStartClaim(it)}>
                     바로 청구하기
                   </Button>
                   <Link href="/chat" className="inline-flex">
