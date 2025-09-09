@@ -509,10 +509,8 @@ export default function ChatPage() {
     "이 진단명(또는 질병명)으로 보험금 청구가 가능한가요?",
     "보험금을 청구하려면 어떤 서류가 필요한가요?",
     "충치치료도 일반 건강보험에서 보장이 되나요?",
-    "실손보험은 몇 번까지 청구할 수 있나요?",
-    "보험 가입 내역을 한 번에 확인할 수 있나요?",
-    "내원시 받은 약처방도 실손보험에서 보장되나요?",
-    "저렴하면서 보장은 좋은 보험 없을까요?",
+    "같은 항목에 대해 여러번 청구할 수 있나요?",
+    "내원시 받은 약처방도 내 보험에서 보장되나요?",
   ];
 
   const displayedQuestions = showAllQuickQuestions ? quickStartQuestions : quickStartQuestions.slice(0, 4);
