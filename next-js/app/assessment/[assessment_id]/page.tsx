@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Upload, Send } from "lucide-react"
+import { Upload, Send, Menu } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import AssessmentSidebar, { AssessmentItem, ChatHistoryItem } from "@/components/AssessmentSidebar"
@@ -80,6 +80,7 @@ export default function AssessmentRoomPage() {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [sending, setSending] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const bottomRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }) }, [messages])
@@ -242,17 +243,30 @@ export default function AssessmentRoomPage() {
   }
 
   return (
-    <div className="flex h-screen">
-      <AssessmentSidebar
-        assessments={assessments}
-        chatHistory={chatHistory}
-        onNewAssessmentClick={() => { /* open modal if needed */ }}
-        onLogout={handleLogout}
-      />
+    <div className="flex h-screen bg-gray-50">
+      {/* Sidebar: responsive like chat page */}
+      <div
+        className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 w-96 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col lg:h-svh overflow-hidden min-h-0 flex-shrink-0`}
+      >
+        <AssessmentSidebar
+          assessments={assessments}
+          chatHistory={chatHistory}
+          onNewAssessmentClick={() => { /* open modal if needed */ }}
+          onLogout={handleLogout}
+          onCloseMobile={() => setSidebarOpen(false)}
+        />
+      </div>
 
       {/* center: messages */}
       <div className="flex-1 flex flex-col">
-        <div className="border-b p-3 text-sm text-gray-600">분석 #{assessmentId}</div>
+        <header className="bg-white border-b px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Button variant="ghost" size="sm" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
+              <Menu className="h-4 w-4" />
+            </Button>
+            <div className="text-sm text-gray-600">분석 #{assessmentId}</div>
+          </div>
+        </header>
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-3">
             {/* guide chat should always appear at top */}
@@ -374,6 +388,9 @@ export default function AssessmentRoomPage() {
           </div>
         </ScrollArea>
       </div>
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
     </div>
   )
 }

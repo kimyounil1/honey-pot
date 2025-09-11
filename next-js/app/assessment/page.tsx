@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { FileText, Plus } from "lucide-react"
+import { FileText, Plus, Menu } from "lucide-react"
 import AssessmentSidebar, { AssessmentItem as Assessment, ChatHistoryItem as ChatHistory } from "@/components/AssessmentSidebar"
 import NewAssessmentModal from "./new-assessment-modal"
 
@@ -11,6 +11,7 @@ export default function AssessmentPage() {
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([])
   const [loading, setLoading] = useState(true)
   const [showNewAssessmentModal, setShowNewAssessmentModal] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     const dummyAssessments: Assessment[] = [
@@ -58,29 +59,49 @@ export default function AssessmentPage() {
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <AssessmentSidebar
-        assessments={assessments}
-        chatHistory={chatHistory}
-        onNewAssessmentClick={() => setShowNewAssessmentModal(true)}
-        onLogout={handleLogout}
-      />
+      {/* Sidebar: responsive like chat page */}
+      <div
+        className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 w-96 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col lg:h-svh overflow-hidden min-h-0 flex-shrink-0`}
+      >
+        <AssessmentSidebar
+          assessments={assessments}
+          chatHistory={chatHistory}
+          onNewAssessmentClick={() => setShowNewAssessmentModal(true)}
+          onLogout={handleLogout}
+          onCloseMobile={() => setSidebarOpen(false)}
+        />
+      </div>
 
-      <div className="flex-1 flex items-center justify-center bg-gray-50">
-        <div className="text-center space-y-4">
-          <div className="w-16 h-16 bg-gradient-to-r from-orange-400 to-orange-500 rounded-full flex items-center justify-center mx-auto">
-            <FileText className="h-8 w-8 text-white" />
+      <div className="flex-1 flex flex-col bg-gray-50">
+        <header className="bg-white border-b px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Button variant="ghost" size="sm" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
+              <Menu className="h-4 w-4" />
+            </Button>
+            <h2 className="text-sm font-medium text-gray-700">보험 서류 분석</h2>
           </div>
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">보험 서류 분석</h2>
-            <p className="text-gray-600 max-w-md mx-auto">
-              새로 분석을 생성하거나 기존 분석을 선택해 문서를 업로드하고 결과를 확인하세요.
-            </p>
+        </header>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center space-y-4">
+            <div className="w-16 h-16 bg-gradient-to-r from-orange-400 to-orange-500 rounded-full flex items-center justify-center mx-auto">
+              <FileText className="h-8 w-8 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">보험 서류 분석</h2>
+              <p className="text-gray-600 max-w-md mx-auto">
+                새로 분석을 생성하거나 기존 분석을 선택해 문서를 업로드하고 결과를 확인하세요.
+              </p>
+            </div>
+            <Button onClick={() => setShowNewAssessmentModal(true)} className="bg-gradient-to-r from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 text-white">
+              <Plus className="h-4 w-4 mr-2" />문서 분석 시작
+            </Button>
           </div>
-          <Button onClick={() => setShowNewAssessmentModal(true)} className="bg-gradient-to-r from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 text-white">
-            <Plus className="h-4 w-4 mr-2" />문서 분석 시작
-          </Button>
         </div>
       </div>
+
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
 
       <NewAssessmentModal
         isOpen={showNewAssessmentModal}

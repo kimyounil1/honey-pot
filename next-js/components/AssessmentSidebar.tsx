@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import {Plus, FileText, MessageCircle, User, LogOut, TrendingUp, Droplet} from "lucide-react"
+import {Plus, FileText, MessageCircle, User, LogOut, TrendingUp, Droplet, X} from "lucide-react"
 
 export type AssessmentItem = {
   id: number
@@ -28,11 +28,13 @@ export default function AssessmentSidebar({
   chatHistory,
   onNewAssessmentClick,
   onLogout,
+  onCloseMobile,
 }: {
   assessments: AssessmentItem[]
   chatHistory: ChatHistoryItem[]
   onNewAssessmentClick: () => void
   onLogout: () => void
+  onCloseMobile?: () => void
 }) {
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
@@ -53,15 +55,28 @@ export default function AssessmentSidebar({
             </div>
             <span className="font-bold text-gray-800">꿀통</span>
           </Link>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onLogout}
-            className="text-gray-500 hover:text-gray-700"
-            aria-label="로그아웃"
-          >
-            <LogOut className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {onCloseMobile && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="lg:hidden"
+                onClick={onCloseMobile}
+                aria-label="사이드바 닫기"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onLogout}
+              className="text-gray-500 hover:text-gray-700"
+              aria-label="로그아웃"
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -151,4 +166,3 @@ export default function AssessmentSidebar({
     </div>
   )
 }
-

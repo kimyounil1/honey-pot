@@ -290,7 +290,7 @@ def _wx_token_count(model: Optional[ModelInference], text: str) -> int:
 def _fit_snippets_to_limit(
     snippets: List[Dict[str, Any]],
     user_query: str,
-    token_limit: int = 30000,
+    token_limit: int = 20000,
     system_overhead_tokens: int = 600,
     per_snippet_header_tokens: int = 12,
 ) -> Tuple[str, List[Dict[str, Any]]]:
